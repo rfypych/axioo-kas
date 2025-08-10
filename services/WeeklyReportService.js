@@ -2,6 +2,7 @@ const cron = require('node-cron');
 const Student = require('../models/Student');
 const Transaction = require('../models/Transaction');
 const EnhancedReportService = require('./EnhancedReportService');
+const ConfigurableReportService = require('./ConfigurableReportService');
 
 class WeeklyReportService {
     constructor(bot) {
@@ -73,6 +74,24 @@ class WeeklyReportService {
         }
     }
 
+    // Update the cron schedule based on the configured reporting day
+    async updateSchedule() {
+        const config = await ConfigurableReportService.getConfig();
+        const { reportingDay, reportingHour, reportingMinute } = config;
+
+        // Format: minute hour day-of-month month day-of-week
+        const newSchedule = `${reportingMinute} ${reportingHour} * * ${reportingDay}`;
+
+        if (this.schedule !== newSchedule) {
+            console.log(`Updating report schedule from "${this.schedule}" to "${newSchedule}"`);
+            this.schedule = newSchedule;
+            // Restart the scheduler with the new schedule
+            if (this.isEnabled) {
+                this.startScheduler();
+            }
+        }
+    }
+
     // Generate and send weekly report
     async sendWeeklyReport() {
         try {
@@ -93,15 +112,12 @@ class WeeklyReportService {
 
     // Generate weekly report content
     async generateWeeklyReport() {
-        const now = new Date();
-        const weekStart = new Date(now.setDate(now.getDate() - now.getDay() + 1)); // Monday
-        const weekEnd = new Date(weekStart);
-        weekEnd.setDate(weekStart.getDate() + 6); // Sunday
+        const { startDate, endDate } = await ConfigurableReportService.getWeekDateRange();
 
         // Get data
         const balance = await Transaction.getBalance();
-        const weeklyCollection = await Transaction.getWeeklyCollection();
-        const weeklyPayments = await Student.getWeeklyPaymentStatus();
+        const weeklyCollection = await Transaction.getCollectionForRange(startDate, endDate);
+        const weeklyPayments = await Student.getPaymentStatusForRange(startDate, endDate);
         
         // Calculate statistics
         const lunasCount = weeklyPayments.filter(s => s.status === 'paid').length;
@@ -111,7 +127,7 @@ class WeeklyReportService {
 
         // Generate report
         let report = `📊 *LAPORAN MINGGUAN KAS KELAS*\n`;
-        report += `📅 Periode: ${this.formatDate(weekStart)} - ${this.formatDate(weekEnd)}\n\n`;
+        report += `📅 Periode: ${this.formatDate(startDate)} - ${this.formatDate(endDate)}\n\n`;
 
         // Summary
         report += `💰 *RINGKASAN KEUANGAN*\n`;
@@ -131,10 +147,12 @@ class WeeklyReportService {
         report += `❌ Belum bayar: ${belumBayarCount} siswa\n\n`;
 
         // Progress bar
-        const progressPercentage = Math.round((lunasCount / totalStudents) * 100);
-        const progressBar = this.generateProgressBar(progressPercentage);
-        report += `📈 *PROGRESS MINGGU INI*\n`;
-        report += `${progressBar} ${progressPercentage}%\n\n`;
+        if (totalStudents > 0) {
+            const progressPercentage = Math.round((lunasCount / totalStudents) * 100);
+            const progressBar = this.generateProgressBar(progressPercentage);
+            report += `📈 *PROGRESS MINGGU INI*\n`;
+            report += `${progressBar} ${progressPercentage}%\n\n`;
+        }
 
         // Detailed student list (only those who paid)
         const paidStudents = weeklyPayments.filter(s => s.weekly_paid > 0);
@@ -251,67 +269,42 @@ class WeeklyReportService {
         }
     }
 
-    // Send file-based reports (Excel/CSV)
+    // Send file-based reports (Excel/CSV/Image)
     async sendFileReport(chatId, format) {
         try {
-            const now = new Date();
-            let year = now.getFullYear();
-            let month = now.getMonth() + 1;
+            const { startDate, endDate } = await ConfigurableReportService.getWeekDateRange();
+            const periodStr = `${startDate.toLocaleDateString('id-ID')} - ${endDate.toLocaleDateString('id-ID')}`;
 
-            // Auto-rotate to previous month if we're in first week of new month
-            if (now.getDate() <= 7) {
-                const prevMonth = new Date(year, month - 2, 1); // Go to previous month
-                year = prevMonth.getFullYear();
-                month = prevMonth.getMonth() + 1;
-
-                this.bot.sendMessage(chatId, `📅 Auto-detecting: Generating report for previous month (${month}/${year}) since we're in early ${now.getMonth() + 1}/${now.getFullYear()}`);
-            }
-
-            this.bot.sendMessage(chatId, `⏳ Membuat laporan ${format.toUpperCase()} untuk bulan ${month}/${year}...`);
+            this.bot.sendMessage(chatId, `⏳ Membuat laporan ${format.toUpperCase()} untuk periode ${periodStr}...`);
 
             if (format === 'excel') {
-                const result = await this.enhancedReport.generateExcelReport(year, month);
-
+                const result = await this.enhancedReport.generateExcelReport(startDate, endDate);
                 if (result.success) {
-                    // Send Excel file
                     await this.bot.sendDocument(chatId, result.filepath, {
-                        caption: `📊 *Laporan Kas Kelas - ${month}/${year}*\n\n` +
-                                `📁 Format: Excel (XLSX)\n` +
-                                `📅 Periode: ${result.data.summary.period}\n` +
-                                `💰 Saldo: Rp ${result.data.summary.balance.toLocaleString('id-ID')}\n` +
-                                `👥 Siswa: ${result.data.summary.studentsWithPayments}/${result.data.summary.totalStudents} sudah bayar`,
+                        caption: `📊 *Laporan Kas Mingguan*\n\n` +
+                                 `📁 Format: Excel (XLSX)\n` +
+                                 `📅 Periode: ${periodStr}`,
                         parse_mode: 'Markdown'
                     });
                 } else {
                     this.bot.sendMessage(chatId, `❌ Gagal membuat laporan Excel: ${result.error}`);
                 }
             } else if (format === 'csv') {
-                const result = await this.enhancedReport.generateCSVReport(year, month);
-
+                const result = await this.enhancedReport.generateCSVReport(startDate, endDate);
                 if (result.success) {
-                    // Send CSV files
-                    this.bot.sendMessage(chatId, `📊 *Laporan Kas Kelas - ${month}/${year}*\n\n📁 Format: CSV (3 file terpisah)`, { parse_mode: 'Markdown' });
-
+                    this.bot.sendMessage(chatId, `📊 *Laporan Kas Mingguan - CSV*\n\n📅 Periode: ${periodStr}`, { parse_mode: 'Markdown' });
                     for (const filepath of result.files) {
-                        const filename = require('path').basename(filepath);
-                        await this.bot.sendDocument(chatId, filepath, {
-                            caption: `📄 ${filename}`
-                        });
+                        await this.bot.sendDocument(chatId, filepath);
                     }
                 } else {
                     this.bot.sendMessage(chatId, `❌ Gagal membuat laporan CSV: ${result.error}`);
                 }
             } else if (format === 'image' || format === 'gambar') {
-                const result = await this.enhancedReport.generateImageReport(year, month);
-
+                const result = await this.enhancedReport.generateImageReport(startDate, endDate);
                 if (result.success) {
-                    // Send image file
                     await this.bot.sendPhoto(chatId, result.buffer, {
-                        caption: `📊 *Laporan Pembayaran Kas Mingguan - ${month}/${year}*\n\n` +
-                                `🖼️ Format: Gambar Tabel\n` +
-                                `📅 Periode: ${month}/${year}\n` +
-                                `💰 Iuran: Rp 3.000/minggu\n` +
-                                `📋 Tabel lengkap dengan status pembayaran per minggu`,
+                        caption: `📊 *Laporan Pembayaran Kas Mingguan*\n\n` +
+                                 `📅 Periode: ${periodStr}`,
                         parse_mode: 'Markdown'
                     });
                 } else {

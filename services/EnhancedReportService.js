@@ -43,21 +43,18 @@ class EnhancedReportService {
         }
     }
 
-    // Generate monthly report data with weekly payment tracking
-    async generateMonthlyData(year, month) {
+    // Generate report data for a given date range
+    async generateReportData(startDate, endDate) {
         try {
-            // Get date range for the month
-            const startDate = new Date(year, month - 1, 1);
-            const endDate = new Date(year, month, 0);
-
             console.log(`Generating report for ${startDate.toLocaleDateString()} - ${endDate.toLocaleDateString()}`);
 
             // Get all students with their payment data
-            const students = await Student.getAll();
+            const students = await Student.getAllActive();
+            console.log('[DEBUG] students in generateReportData:', students);
 
-            // Get all transactions for the month
+            // Get all transactions for the date range
             const { executeQuery } = require('../config/database');
-            const monthlyTransactionsQuery = `
+            const rangeTransactionsQuery = `
                 SELECT t.*, s.name as student_name
                 FROM transactions t
                 LEFT JOIN students s ON t.student_id = s.id
@@ -65,18 +62,23 @@ class EnhancedReportService {
                 ORDER BY t.created_at DESC
             `;
 
-            const transactionsResult = await executeQuery(monthlyTransactionsQuery, [
+            const transactionsResult = await executeQuery(rangeTransactionsQuery, [
                 startDate.toISOString().split('T')[0],
                 endDate.toISOString().split('T')[0]
             ]);
 
             const transactions = transactionsResult.success ? transactionsResult.data : [];
 
-            // Calculate weeks in the month
-            const weeksInMonth = this.getWeeksInMonth(year, month);
+            // Calculate weeks in the date range using ConfigurableReportService
+            const ConfigurableReportService = require('./ConfigurableReportService');
+            const weeksInRange = await ConfigurableReportService.getMultipleWeekRanges(
+                Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24 * 7)),
+                endDate,
+                'past'
+            );
 
             // Process student payment data with weekly breakdown
-            const studentsWithWeeklyData = await this.processStudentWeeklyPayments(students, transactions, weeksInMonth, year, month);
+            const studentsWithWeeklyData = await this.processStudentWeeklyPayments(students, transactions, weeksInRange);
 
             // Calculate summary statistics with weekly payment info
             const totalExpectedIuran = studentsWithWeeklyData.reduce((sum, s) => sum + s.totalExpected, 0);
@@ -90,16 +92,16 @@ class EnhancedReportService {
                 totalIncome: transactions.filter(t => t.type === 'income').reduce((sum, t) => sum + parseFloat(t.amount), 0),
                 totalExpense: transactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + parseFloat(t.amount), 0),
                 totalIuran: transactions.filter(t => t.type === 'iuran').reduce((sum, t) => sum + parseFloat(t.amount), 0),
-                studentsWithPayments: students.filter(s => s.total_paid > 0).length,
+                studentsWithPayments: studentsWithWeeklyData.filter(s => s.totalPaid > 0).length,
                 period: `${startDate.toLocaleDateString('id-ID')} - ${endDate.toLocaleDateString('id-ID')}`,
                 // Weekly payment statistics
-                weeksInMonth: weeksInMonth.length,
+                weeksInRange: weeksInRange.length,
                 totalExpectedIuran,
                 totalActualIuran,
                 studentsFullyPaid,
                 studentsPartiallyPaid,
                 studentsNotPaid: students.length - studentsFullyPaid - studentsPartiallyPaid,
-                paymentCompletionRate: Math.round((studentsFullyPaid / students.length) * 100)
+                paymentCompletionRate: students.length > 0 ? Math.round((studentsFullyPaid / students.length) * 100) : 0
             };
 
             summary.balance = summary.totalIncome + summary.totalIuran - summary.totalExpense;
@@ -108,12 +110,10 @@ class EnhancedReportService {
                 summary,
                 students: studentsWithWeeklyData,
                 transactions,
-                weeksInMonth,
+                weeksInRange,
                 period: {
                     start: startDate,
-                    end: endDate,
-                    year,
-                    month
+                    end: endDate
                 }
             };
         } catch (error) {
@@ -123,9 +123,10 @@ class EnhancedReportService {
     }
 
     // Generate Excel report
-    async generateExcelReport(year, month) {
+    async generateExcelReport(startDate, endDate) {
         try {
-            const data = await this.generateMonthlyData(year, month);
+            const data = await this.generateReportData(startDate, endDate);
+            console.log('[DEBUG] Data object in generateExcelReport:', Object.keys(data));
             const workbook = new ExcelJS.Workbook();
             
             // Set workbook properties
@@ -147,7 +148,7 @@ class EnhancedReportService {
             await this.createTransactionsSheet(transactionsSheet, data);
 
             // Save file
-            const filename = `laporan-kas-${year}-${month.toString().padStart(2, '0')}.xlsx`;
+            const filename = `laporan-kas-${startDate.toISOString().split('T')[0]}-sd-${endDate.toISOString().split('T')[0]}.xlsx`;
             const filepath = path.join(this.reportsDir, filename);
             
             await workbook.xlsx.writeFile(filepath);
@@ -231,24 +232,27 @@ class EnhancedReportService {
 
     // Create students sheet with weekly payment tracking
     async createStudentsSheet(sheet, data) {
-        const { students, weeksInMonth, summary } = data;
+        const { students, weeksInRange, summary } = data;
+        console.log('[DEBUG] weeksInRange in createStudentsSheet:', weeksInRange);
 
         // Title
         sheet.getCell('A1').value = `LAPORAN PEMBAYARAN KAS MINGGUAN - ${summary.period}`;
         sheet.getCell('A1').font = { bold: true, size: 14 };
-        sheet.mergeCells('A1', `${String.fromCharCode(65 + 4 + weeksInMonth.length)}1`);
+        sheet.mergeCells('A1', `${String.fromCharCode(65 + 4 + weeksInRange.length)}1`);
 
         // Info
-        sheet.getCell('A2').value = `Iuran per minggu: Rp 3.000 | Total minggu: ${weeksInMonth.length} | Target per siswa: Rp ${(weeksInMonth.length * 3000).toLocaleString('id-ID')}`;
+        sheet.getCell('A2').value = `Iuran per minggu: Rp 3.000 | Total minggu: ${weeksInRange.length} | Target per siswa: Rp ${(weeksInRange.length * 3000).toLocaleString('id-ID')}`;
         sheet.getCell('A2').font = { italic: true };
-        sheet.mergeCells('A2', `${String.fromCharCode(65 + 4 + weeksInMonth.length)}2`);
+        sheet.mergeCells('A2', `${String.fromCharCode(65 + 4 + weeksInRange.length)}2`);
 
         // Headers
         const headers = ['No', 'Nama Siswa', 'Kelas'];
 
         // Add week headers with date ranges
-        weeksInMonth.forEach(week => {
-            headers.push(week.labelWithDate);
+        weeksInRange.forEach(week => {
+            const start = `${week.startDate.getDate()}/${week.startDate.getMonth() + 1}`;
+            const end = `${week.endDate.getDate()}/${week.endDate.getMonth() + 1}`;
+            headers.push(`Minggu ${week.week + 1} (${start}-${end})`);
         });
 
         headers.push('Total Bayar', 'Status', 'Persentase');
@@ -320,7 +324,7 @@ class EnhancedReportService {
         sheet.columns.forEach((column, index) => {
             if (index === 1) { // Name column
                 column.width = 25;
-            } else if (index >= 3 && index < 3 + weeksInMonth.length) { // Week columns
+            } else if (index >= 3 && index < 3 + weeksInRange.length) { // Week columns
                 column.width = 12;
             } else {
                 column.width = 15;
@@ -387,17 +391,17 @@ class EnhancedReportService {
     }
 
     // Generate CSV report
-    async generateCSVReport(year, month) {
+    async generateCSVReport(startDate, endDate) {
         try {
-            const data = await this.generateMonthlyData(year, month);
+            const data = await this.generateReportData(startDate, endDate);
 
             // Generate CSV content for students with weekly breakdown
-            const studentsCSV = this.generateStudentsCSV(data.students, data.weeksInMonth);
+            const studentsCSV = this.generateStudentsCSV(data.students, data.weeksInRange);
             const transactionsCSV = this.generateTransactionsCSV(data.transactions);
             const summaryCSV = this.generateSummaryCSV(data.summary);
 
             // Save CSV files
-            const baseFilename = `laporan-kas-${year}-${month.toString().padStart(2, '0')}`;
+            const baseFilename = `laporan-kas-${startDate.toISOString().split('T')[0]}-sd-${endDate.toISOString().split('T')[0]}`;
             
             const studentsFile = path.join(this.reportsDir, `${baseFilename}-siswa.csv`);
             const transactionsFile = path.join(this.reportsDir, `${baseFilename}-transaksi.csv`);
@@ -420,13 +424,15 @@ class EnhancedReportService {
         }
     }
 
-    generateStudentsCSV(students, weeksInMonth = []) {
+    generateStudentsCSV(students, weeksInRange = []) {
         // Build headers with weekly breakdown
         let headers = ['No', 'Nama Siswa', 'Kelas'];
 
         // Add weekly headers with date ranges
-        weeksInMonth.forEach(week => {
-            headers.push(week.labelWithDate);
+        weeksInRange.forEach(week => {
+            const start = `${week.startDate.getDate()}/${week.startDate.getMonth() + 1}`;
+            const end = `${week.endDate.getDate()}/${week.endDate.getMonth() + 1}`;
+            headers.push(`Minggu ${week.week + 1} (${start}-${end})`);
         });
 
         headers.push('Total Bayar', 'Status', 'Persentase');
@@ -447,7 +453,7 @@ class EnhancedReportService {
                 });
             } else {
                 // Fallback for old format
-                weeksInMonth.forEach(() => {
+                weeksInRange.forEach(() => {
                     rowData.push('"[X]"');
                 });
             }
@@ -516,122 +522,55 @@ class EnhancedReportService {
         }
     }
 
-    // Get weeks in a month for weekly payment tracking
-    getWeeksInMonth(year, month) {
-        const weeks = [];
-        const firstDay = new Date(year, month - 1, 1);
-        const lastDay = new Date(year, month, 0);
-
-        // Find the first Monday of the month (or the first day if it's not Monday)
-        let currentWeekStart = new Date(firstDay);
-        const dayOfWeek = firstDay.getDay();
-        const daysToMonday = dayOfWeek === 0 ? 1 : (8 - dayOfWeek) % 7;
-
-        if (daysToMonday > 0 && daysToMonday < 7) {
-            currentWeekStart.setDate(firstDay.getDate() + daysToMonday);
-        }
-
-        let weekNumber = 1;
-        while (currentWeekStart <= lastDay) {
-            const weekEnd = new Date(currentWeekStart);
-            weekEnd.setDate(currentWeekStart.getDate() + 6);
-
-            // Don't go beyond the month
-            if (weekEnd > lastDay) {
-                weekEnd.setTime(lastDay.getTime());
-            }
-
-            // Format tanggal untuk label yang lebih informatif
-            const startDate = currentWeekStart.getDate();
-            const endDate = weekEnd.getDate();
-            const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun',
-                              'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
-            const monthName = monthNames[month - 1];
-
-            // Create labels with date ranges
-            const dateRange = startDate === endDate ?
-                `${startDate} ${monthName}` :
-                `${startDate}-${endDate} ${monthName}`;
-
-            weeks.push({
-                number: weekNumber,
-                start: new Date(currentWeekStart),
-                end: new Date(weekEnd),
-                label: `Minggu ${weekNumber}`,
-                labelWithDate: `Minggu ${weekNumber} (${dateRange})`,
-                shortLabel: `M${weekNumber}`,
-                dateRange: dateRange,
-                startDate: startDate,
-                endDate: endDate,
-                monthName: monthName
-            });
-
-            // Move to next week
-            currentWeekStart.setDate(currentWeekStart.getDate() + 7);
-            weekNumber++;
-        }
-
-        return weeks;
-    }
-
-    // Process student weekly payment data with Multi-Week Payment support (FIXED)
-    async processStudentWeeklyPayments(students, transactions, weeksInMonth, year, month) {
+    // Process student weekly payment data based on a given date range
+    async processStudentWeeklyPayments(students, allTransactions, weeksInRange) {
         const weeklyPaymentAmount = 3000; // Rp 3.000 per minggu
 
         return students.map(student => {
-            // Get student's iuran transactions for this month
-            const studentTransactions = transactions.filter(t =>
-                t.student_id === student.id && t.type === 'iuran'
-            );
+            const studentTransactions = allTransactions.filter(t => t.student_id === student.id && t.type === 'iuran');
 
-            // Calculate total amount paid by student
-            const totalStudentPaid = studentTransactions.reduce((sum, t) => sum + parseFloat(t.amount), 0);
+            const weeklyPayments = weeksInRange.map(week => {
+                const transactionsInWeek = studentTransactions.filter(t => {
+                    const txDate = new Date(t.created_at);
+                    return txDate >= week.startDate && txDate <= week.endDate;
+                });
 
-            // Calculate how many weeks this payment covers
-            const fullWeeksPaid = Math.floor(totalStudentPaid / weeklyPaymentAmount);
-            const remainder = totalStudentPaid % weeklyPaymentAmount;
+                const paidInWeek = transactionsInWeek.reduce((sum, t) => sum + parseFloat(t.amount), 0);
 
-            // Process each week with corrected logic
-            const weeklyPayments = weeksInMonth.map(week => {
-                let status = '[X]'; // Default: not paid
-                let paid = 0;
+                let status = '[X]';
                 let isPaid = false;
                 let isPartial = false;
 
-                // Simple cumulative logic: if student has paid enough for this week number
-                if (week.number <= fullWeeksPaid) {
-                    status = '[V]'; // Fully paid
-                    paid = weeklyPaymentAmount;
+                if (paidInWeek >= weeklyPaymentAmount) {
+                    status = '[V]';
                     isPaid = true;
-                } else if (week.number === fullWeeksPaid + 1 && remainder > 0) {
-                    status = '[!]'; // Partially paid
-                    paid = remainder;
+                } else if (paidInWeek > 0) {
+                    status = '[!]';
                     isPartial = true;
                 }
 
                 return {
-                    week: week.number,
-                    label: week.label,
+                    week: week.week,
+                    label: `Minggu ${week.week + 1}`,
                     expected: weeklyPaymentAmount,
-                    paid: paid,
-                    isPaid: isPaid,
-                    isPartial: isPartial,
-                    status: status,
-                    transactions: studentTransactions // Include all transactions for reference
+                    paid: paidInWeek,
+                    isPaid,
+                    isPartial,
+                    status,
+                    transactions: transactionsInWeek
                 };
             });
 
-            // Calculate totals
-            const totalExpected = weeksInMonth.length * weeklyPaymentAmount;
+            const totalPaid = weeklyPayments.reduce((sum, w) => sum + w.paid, 0);
+            const totalExpected = weeksInRange.length * weeklyPaymentAmount;
             const paidWeeks = weeklyPayments.filter(w => w.isPaid).length;
             const partialWeeks = weeklyPayments.filter(w => w.isPartial).length;
-            const paymentPercentage = Math.round((paidWeeks / weeksInMonth.length) * 100);
+            const paymentPercentage = totalExpected > 0 ? Math.round((totalPaid / totalExpected) * 100) : 0;
 
-            // Enhanced status calculation
             let status;
-            if (paymentPercentage === 100) {
+            if (paymentPercentage >= 100) {
                 status = 'LUNAS';
-            } else if (paidWeeks > 0 || partialWeeks > 0) {
+            } else if (totalPaid > 0) {
                 status = 'SEBAGIAN';
             } else {
                 status = 'BELUM BAYAR';
@@ -641,31 +580,29 @@ class EnhancedReportService {
                 ...student,
                 weeklyPayments,
                 totalExpected,
-                totalPaid: totalStudentPaid,
+                totalPaid,
                 paidWeeks,
                 partialWeeks,
-                totalWeeks: weeksInMonth.length,
+                totalWeeks: weeksInRange.length,
                 paymentPercentage,
-                status,
-                fullWeeksPaid,
-                remainder
+                status
             };
         });
     }
 
     // Generate image report of weekly payment table
-    async generateImageReport(year, month) {
+    async generateImageReport(startDate, endDate) {
         try {
-            console.log(`Generating image report for ${month}/${year}...`);
+            console.log(`Generating image report for ${startDate.toLocaleDateString()} - ${endDate.toLocaleDateString()}...`);
 
             // Get data
-            const data = await this.generateMonthlyData(year, month);
+            const data = await this.generateReportData(startDate, endDate);
 
             // Create canvas
             const canvas = this.createPaymentTableCanvas(data);
 
             // Save image
-            const filename = `laporan-kas-${year}-${month.toString().padStart(2, '0')}.png`;
+            const filename = `laporan-kas-${startDate.toISOString().split('T')[0]}-sd-${endDate.toISOString().split('T')[0]}.png`;
             const filepath = path.join(this.reportsDir, filename);
 
             const buffer = canvas.toBuffer('image/png');
@@ -687,7 +624,7 @@ class EnhancedReportService {
 
     // Create canvas with payment table - Optimized for readability with emoji support
     createPaymentTableCanvas(data) {
-        const { students, weeksInMonth, summary } = data;
+        const { students, weeksInRange, summary } = data;
 
         // Optimized canvas dimensions for ALL students display
         const cellWidth = 90; // Slightly reduced for more compact layout
@@ -700,10 +637,10 @@ class EnhancedReportService {
         // Calculate total width more precisely
         const baseColumns = 3; // No, Name, Class
         const summaryColumns = 3; // Total, Status, %
-        const totalColumns = baseColumns + weeksInMonth.length + summaryColumns;
+        const totalColumns = baseColumns + weeksInRange.length + summaryColumns;
 
         const canvasWidth = nameColumnWidth + cellWidth + // No + Name columns
-                           (weeksInMonth.length * weekColumnWidth) + // Week columns
+                           (weeksInRange.length * weekColumnWidth) + // Week columns
                            (summaryColumns * cellWidth); // Summary columns
 
         // Calculate height for ALL students + minimal space for summary
@@ -731,11 +668,11 @@ class EnhancedReportService {
 
         // Add summary info
         ctx.font = '12px Arial';
-        ctx.fillText(`Total Siswa: ${students.length} | Target: Rp ${(weeksInMonth.length * 3000 * students.length).toLocaleString('id-ID')}`, canvasWidth / 2, 80);
+        ctx.fillText(`Total Siswa: ${students.length} | Target: Rp ${(weeksInRange.length * 3000 * students.length).toLocaleString('id-ID')}`, canvasWidth / 2, 80);
 
         // Headers with improved layout
         const headers = ['No', 'Nama Siswa', 'Kelas'];
-        weeksInMonth.forEach(week => headers.push(week.shortLabel)); // Use short labels for headers
+        weeksInRange.forEach(week => headers.push(`M${week.week + 1}`)); // Use short labels for headers
         headers.push('Total', 'Status', '%');
 
         let currentX = 0;
@@ -763,7 +700,7 @@ class EnhancedReportService {
             if (index === 0) colWidth = cellWidth; // No
             else if (index === 1) colWidth = nameColumnWidth; // Name
             else if (index === 2) colWidth = cellWidth; // Class
-            else if (index >= 3 && index < 3 + weeksInMonth.length) colWidth = weekColumnWidth; // Weeks
+            else if (index >= 3 && index < 3 + weeksInRange.length) colWidth = weekColumnWidth; // Weeks
             else colWidth = cellWidth; // Summary columns
 
             // Draw column separators
@@ -777,15 +714,17 @@ class EnhancedReportService {
             }
 
             // Header text with date info for week columns
-            if (index >= 3 && index < 3 + weeksInMonth.length) {
+            if (index >= 3 && index < 3 + weeksInRange.length) {
                 const weekIndex = index - 3;
-                const week = weeksInMonth[weekIndex];
+                const week = weeksInRange[weekIndex];
+                const start = `${week.startDate.getDate()}/${week.startDate.getMonth() + 1}`;
+                const end = `${week.endDate.getDate()}/${week.endDate.getMonth() + 1}`;
 
                 ctx.font = 'bold 11px Arial';
-                ctx.fillText(week.label, currentX + colWidth / 2, headerY + 20);
+                ctx.fillText(`Minggu ${week.week + 1}`, currentX + colWidth / 2, headerY + 20);
 
                 ctx.font = '10px Arial';
-                ctx.fillText(`(${week.dateRange})`, currentX + colWidth / 2, headerY + 35);
+                ctx.fillText(`(${start}-${end})`, currentX + colWidth / 2, headerY + 35);
 
                 ctx.font = '9px Arial';
                 ctx.fillText('Rp 3.000', currentX + colWidth / 2, headerY + 50);
@@ -841,7 +780,7 @@ class EnhancedReportService {
                 if (colIndex === 0) colWidth = cellWidth; // No
                 else if (colIndex === 1) colWidth = nameColumnWidth; // Name
                 else if (colIndex === 2) colWidth = cellWidth; // Class
-                else if (colIndex >= 3 && colIndex < 3 + weeksInMonth.length) colWidth = weekColumnWidth; // Weeks
+                else if (colIndex >= 3 && colIndex < 3 + weeksInRange.length) colWidth = weekColumnWidth; // Weeks
                 else colWidth = cellWidth; // Summary columns
 
                 // Cell border
@@ -855,7 +794,7 @@ class EnhancedReportService {
                 ctx.textAlign = colIndex === 1 ? 'left' : 'center';
 
                 // Special styling for status cells with multi-week support
-                if (colIndex >= 3 && colIndex < 3 + weeksInMonth.length) {
+                if (colIndex >= 3 && colIndex < 3 + weeksInRange.length) {
                     // Weekly payment status with background color
                     const weekIndex = colIndex - 3;
                     const weekPayment = student.weeklyPayments[weekIndex];
