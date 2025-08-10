@@ -1,0 +1,53 @@
+<div class="col-lg-2 p-0">
+    <div class="sidebar" id="sidebar">
+        <div class="p-3">
+            <nav class="nav flex-column">
+                <a class="nav-link <%= title.includes('Dashboard') ? 'active' : '' %>" href="/dashboard">
+                    <i class="bi bi-speedometer2"></i>
+                    Dashboard
+                </a>
+                
+                <a class="nav-link <%= title.includes('Transaksi') ? 'active' : '' %>" href="/transactions">
+                    <i class="bi bi-receipt"></i>
+                    Transaksi
+                </a>
+                
+                <a class="nav-link <%= title.includes('Siswa') ? 'active' : '' %>" href="/students">
+                    <i class="bi bi-people"></i>
+                    Data Siswa
+                </a>
+                
+                <a class="nav-link <%= title.includes('Iuran') ? 'active' : '' %>" href="/weekly-payments">
+                    <i class="bi bi-calendar-week"></i>
+                    Iuran Mingguan
+                </a>
+                
+                <a class="nav-link <%= title.includes('Laporan') ? 'active' : '' %>" href="/reports">
+                    <i class="bi bi-graph-up"></i>
+                    Laporan
+                </a>
+                
+                <hr class="text-white-50">
+                
+                <% if (user && user.role === 'admin') { %>
+                    <a class="nav-link <%= title.includes('Admin') ? 'active' : '' %>" href="/admin">
+                        <i class="bi bi-gear"></i>
+                        Admin Panel
+                    </a>
+                <% } %>
+                
+                <a class="nav-link" href="/test" target="_blank">
+                    <i class="bi bi-code-slash"></i>
+                    API Test
+                </a>
+                
+                <hr class="text-white-50">
+                
+                <div class="nav-link text-white-50 small">
+                    <i class="bi bi-info-circle"></i>
+                    Version 1.0.0
+                </div>
+            </nav>
+        </div>
+    </div>
+</div>

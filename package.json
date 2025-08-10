@@ -1,0 +1,67 @@
+{
+  "name": "axioo-kas",
+  "version": "1.0.0",
+  "description": "Aplikasi Web Kas Kelas dengan Telegram Bot dan Mistral AI Integration",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "dev": "nodemon app.js",
+    "bot": "node telegram-bot.js",
+    "setup": "node setup-database.js",
+    "test": "node test-connection.js",
+    "build": "echo 'No build step required'",
+    "postinstall": "echo 'Dependencies installed successfully'",
+    "prestart": "node test-connection.js",
+    "aapanel:setup": "node aapanel-setup.js",
+    "aapanel:test": "node run-aapanel-tests.js",
+    "aapanel:fix": "node run-aapanel-tests.js --fix",
+    "aapanel:diagnose": "node diagnose-aapanel.js",
+    "test:siswa": "node test-siswa-aapanel.js",
+    "test:siswa:sample": "node test-siswa-aapanel.js --add-sample",
+    "quick": "node quick-test.js",
+    "fix:database": "node fix-database-structure.js",
+    "simple:test": "node simple-test.js",
+    "test:bot": "node test-bot-siswa.js",
+    "test:multi-ai": "node test-multi-student-ai.js",
+    "test:multi-ai:students": "node test-multi-student-ai.js --students",
+    "test:image": "node test-image-report.js",
+    "test:emoji": "node test-image-report.js --emoji",
+    "emergency:fix": "node emergency-fix.js",
+    "test:excel": "node test-laporan-excel.js",
+    "test:markdown": "node test-laporan-excel.js --markdown"
+  },
+  "keywords": [
+    "kas-kelas",
+    "telegram-bot",
+    "mistral-ai",
+    "web-app",
+    "mysql",
+    "express",
+    "ejs"
+  ],
+  "author": "Axioo Development",
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.6.2",
+    "bcryptjs": "^2.4.3",
+    "canvas": "^3.1.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "ejs": "^3.1.9",
+    "exceljs": "^4.4.0",
+    "express": "^4.18.2",
+    "express-session": "^1.17.3",
+    "html-to-image": "^1.11.13",
+    "moment": "^2.29.4",
+    "multer": "^1.4.5-lts.1",
+    "mysql2": "^3.6.5",
+    "node-cron": "^3.0.3",
+    "node-telegram-bot-api": "^0.66.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}
