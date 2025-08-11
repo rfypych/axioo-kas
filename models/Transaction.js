@@ -189,45 +189,64 @@ class Transaction {
         return result.success ? result.data[0].total : 0;
     }
 
-    static async getWeeklyCollection() {
+    static async getCollectionForPeriod(startDate, endDate) {
         try {
-            // Get weekly total first
+            const formatDate = (date) => date.toISOString().split('T')[0];
+
+            // Get total for the period
             const totalQuery = `
-                SELECT COALESCE(SUM(amount), 0) as weekly_total
+                SELECT COALESCE(SUM(amount), 0) as total
                 FROM transactions
                 WHERE type = 'iuran'
-                AND YEARWEEK(created_at, 1) = YEARWEEK(NOW(), 1)
                 AND student_id IS NOT NULL
+                AND DATE(created_at) >= ? AND DATE(created_at) <= ?
             `;
+            const totalResult = await executeQuery(totalQuery, [formatDate(startDate), formatDate(endDate)]);
+            const total = totalResult.success ? parseFloat(totalResult.data[0].total) || 0 : 0;
 
-            const totalResult = await executeQuery(totalQuery);
-            const weeklyTotal = totalResult.success ? parseFloat(totalResult.data[0].weekly_total) || 0 : 0;
-
-            // Get count of students who are fully paid this week (>= 3000)
+            // Get count of students who are fully paid in this period
             const lunasQuery = `
-                SELECT COUNT(*) as students_lunas
+                SELECT COUNT(*) as lunasCount
                 FROM (
                     SELECT student_id
                     FROM transactions
                     WHERE type = 'iuran'
-                    AND YEARWEEK(created_at, 1) = YEARWEEK(NOW(), 1)
                     AND student_id IS NOT NULL
+                    AND DATE(created_at) >= ? AND DATE(created_at) <= ?
                     GROUP BY student_id
                     HAVING SUM(amount) >= 3000
                 ) as lunas_students
             `;
-
-            const lunasResult = await executeQuery(lunasQuery);
-            const studentsLunas = lunasResult.success ? parseInt(lunasResult.data[0].students_lunas) || 0 : 0;
+            const lunasResult = await executeQuery(lunasQuery, [formatDate(startDate), formatDate(endDate)]);
+            const lunasCount = lunasResult.success ? parseInt(lunasResult.data[0].lunasCount) || 0 : 0;
 
             return {
-                weekly_total: weeklyTotal,
-                students_lunas: studentsLunas
+                total: total,
+                lunasCount: lunasCount
             };
 
         } catch (error) {
-            console.error('Error in getWeeklyCollection:', error);
-            return { weekly_total: 0, students_lunas: 0 };
+            console.error('Error in getCollectionForPeriod:', error);
+            return { total: 0, lunasCount: 0 };
+        }
+    }
+
+    static async getTransactionsBetween(startDate, endDate) {
+        try {
+            const formatDate = (date) => date.toISOString().split('T')[0];
+            const query = `
+                SELECT t.*, s.name as student_name
+                FROM transactions t
+                LEFT JOIN students s ON t.student_id = s.id
+                WHERE DATE(t.created_at) >= ? AND DATE(t.created_at) <= ?
+                ORDER BY t.created_at DESC
+            `;
+
+            const result = await executeQuery(query, [formatDate(startDate), formatDate(endDate)]);
+            return result.success ? result.data : [];
+        } catch (error) {
+            console.error('Error in getTransactionsBetween:', error);
+            return [];
         }
     }
 }

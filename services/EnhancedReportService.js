@@ -4,6 +4,8 @@ const path = require('path');
 const Student = require('../models/Student');
 const Transaction = require('../models/Transaction');
 const { createCanvas, registerFont } = require('canvas');
+const DateHelperService = require('./DateHelperService');
+const appSettings = require('../config/app-settings.json');
 
 class EnhancedReportService {
     constructor() {
@@ -43,89 +45,86 @@ class EnhancedReportService {
         }
     }
 
-    // Generate monthly report data with weekly payment tracking
-    async generateMonthlyData(year, month) {
+    // Generate routine report data based on the configured start date
+    async generateRoutineReportData() {
         try {
-            // Get date range for the month
-            const startDate = new Date(year, month - 1, 1);
-            const endDate = new Date(year, month, 0);
+            const routineStartDate = appSettings.routineStartDate;
+            const today = new Date();
 
-            console.log(`Generating report for ${startDate.toLocaleDateString()} - ${endDate.toLocaleDateString()}`);
+            const periods = DateHelperService.getRoutinePeriods(routineStartDate, today);
+            if (periods.length === 0) {
+                // Return a default structure if no periods are found, to avoid crashes
+                console.warn("No routine periods found. Check the routineStartDate in config.");
+                return {
+                    summary: { period: 'No data' },
+                    students: [],
+                    transactions: [],
+                    routinePeriods: []
+                };
+            }
 
-            // Get all students with their payment data
+            const reportStartDate = periods[0].startDate;
+            const reportEndDate = today;
+
+            console.log(`Generating routine report from ${reportStartDate.toLocaleDateString()} to ${reportEndDate.toLocaleDateString()}`);
+
             const students = await Student.getAll();
+            // This method doesn't exist yet, I will add it in step 6
+            const allTransactions = await Transaction.getTransactionsBetween(reportStartDate, reportEndDate);
 
-            // Get all transactions for the month
-            const { executeQuery } = require('../config/database');
-            const monthlyTransactionsQuery = `
-                SELECT t.*, s.name as student_name
-                FROM transactions t
-                LEFT JOIN students s ON t.student_id = s.id
-                WHERE DATE(t.created_at) >= ? AND DATE(t.created_at) <= ?
-                ORDER BY t.created_at DESC
-            `;
+            const studentsWithRoutineData = await this.processStudentRoutinePayments(students, allTransactions, periods);
 
-            const transactionsResult = await executeQuery(monthlyTransactionsQuery, [
-                startDate.toISOString().split('T')[0],
-                endDate.toISOString().split('T')[0]
-            ]);
-
-            const transactions = transactionsResult.success ? transactionsResult.data : [];
-
-            // Calculate weeks in the month
-            const weeksInMonth = this.getWeeksInMonth(year, month);
-
-            // Process student payment data with weekly breakdown
-            const studentsWithWeeklyData = await this.processStudentWeeklyPayments(students, transactions, weeksInMonth, year, month);
-
-            // Calculate summary statistics with weekly payment info
-            const totalExpectedIuran = studentsWithWeeklyData.reduce((sum, s) => sum + s.totalExpected, 0);
-            const totalActualIuran = studentsWithWeeklyData.reduce((sum, s) => sum + s.totalPaid, 0);
-            const studentsFullyPaid = studentsWithWeeklyData.filter(s => s.status === 'LUNAS').length;
-            const studentsPartiallyPaid = studentsWithWeeklyData.filter(s => s.status === 'SEBAGIAN').length;
+            // Calculate summary statistics
+            const totalExpectedIuran = studentsWithRoutineData.reduce((sum, s) => sum + s.totalExpected, 0);
+            const totalActualIuran = studentsWithRoutineData.reduce((sum, s) => sum + s.totalPaid, 0);
+            const studentsFullyPaid = studentsWithRoutineData.filter(s => s.status === 'LUNAS').length;
+            const studentsPartiallyPaid = studentsWithRoutineData.filter(s => s.status === 'SEBAGIAN').length;
 
             const summary = {
                 totalStudents: students.length,
-                totalTransactions: transactions.length,
-                totalIncome: transactions.filter(t => t.type === 'income').reduce((sum, t) => sum + parseFloat(t.amount), 0),
-                totalExpense: transactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + parseFloat(t.amount), 0),
-                totalIuran: transactions.filter(t => t.type === 'iuran').reduce((sum, t) => sum + parseFloat(t.amount), 0),
-                studentsWithPayments: students.filter(s => s.total_paid > 0).length,
-                period: `${startDate.toLocaleDateString('id-ID')} - ${endDate.toLocaleDateString('id-ID')}`,
-                // Weekly payment statistics
-                weeksInMonth: weeksInMonth.length,
+                totalTransactions: allTransactions.length,
+                totalIncome: allTransactions.filter(t => t.type === 'income').reduce((sum, t) => sum + parseFloat(t.amount), 0),
+                totalExpense: allTransactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + parseFloat(t.amount), 0),
+                totalIuran: allTransactions.filter(t => t.type === 'iuran').reduce((sum, t) => sum + parseFloat(t.amount), 0),
+                studentsWithPayments: studentsWithRoutineData.filter(s => s.totalPaid > 0).length,
+                period: `${reportStartDate.toLocaleDateString('id-ID')} - ${reportEndDate.toLocaleDateString('id-ID')}`,
+
+                // Routine payment statistics
+                routinePeriodsCount: periods.length,
                 totalExpectedIuran,
                 totalActualIuran,
                 studentsFullyPaid,
                 studentsPartiallyPaid,
                 studentsNotPaid: students.length - studentsFullyPaid - studentsPartiallyPaid,
-                paymentCompletionRate: Math.round((studentsFullyPaid / students.length) * 100)
+                paymentCompletionRate: students.length > 0 ? Math.round((studentsFullyPaid / students.length) * 100) : 0
             };
 
             summary.balance = summary.totalIncome + summary.totalIuran - summary.totalExpense;
 
             return {
                 summary,
-                students: studentsWithWeeklyData,
-                transactions,
-                weeksInMonth,
+                students: studentsWithRoutineData,
+                transactions: allTransactions,
+                routinePeriods: periods,
                 period: {
-                    start: startDate,
-                    end: endDate,
-                    year,
-                    month
+                    start: reportStartDate,
+                    end: reportEndDate,
                 }
             };
+
         } catch (error) {
-            console.error('Error generating monthly data:', error);
+            console.error('Error generating routine report data:', error);
             throw error;
         }
     }
 
     // Generate Excel report
-    async generateExcelReport(year, month) {
+    async generateExcelReport() {
         try {
-            const data = await this.generateMonthlyData(year, month);
+            const data = await this.generateRoutineReportData();
+            if (!data.routinePeriods || data.routinePeriods.length === 0) {
+                return { success: false, error: 'No routine periods to generate report for.' };
+            }
             const workbook = new ExcelJS.Workbook();
             
             // Set workbook properties
@@ -147,7 +146,8 @@ class EnhancedReportService {
             await this.createTransactionsSheet(transactionsSheet, data);
 
             // Save file
-            const filename = `laporan-kas-${year}-${month.toString().padStart(2, '0')}.xlsx`;
+            const today = new Date();
+            const filename = `laporan-kas-${today.getFullYear()}-${(today.getMonth() + 1).toString().padStart(2, '0')}-${today.getDate().toString().padStart(2, '0')}.xlsx`;
             const filepath = path.join(this.reportsDir, filename);
             
             await workbook.xlsx.writeFile(filepath);
@@ -179,7 +179,7 @@ class EnhancedReportService {
         sheet.getCell('A2').font = { bold: true };
         sheet.getCell('A2').alignment = { horizontal: 'center' };
 
-        // Summary data with weekly payment info
+        // Summary data with routine payment info
         const summaryData = [
             ['', '', '', ''],
             ['RINGKASAN KEUANGAN', '', '', ''],
@@ -188,9 +188,9 @@ class EnhancedReportService {
             ['Total Pengeluaran', `Rp ${data.summary.totalExpense.toLocaleString('id-ID')}`, '', ''],
             ['Saldo Akhir', `Rp ${data.summary.balance.toLocaleString('id-ID')}`, '', ''],
             ['', '', '', ''],
-            ['STATISTIK PEMBAYARAN MINGGUAN', '', '', ''],
-            ['Total Minggu dalam Bulan', data.summary.weeksInMonth, '', ''],
-            ['Iuran per Minggu', 'Rp 3.000', '', ''],
+            ['STATISTIK PEMBAYARAN RUTIN', '', '', ''],
+            ['Total Periode', data.summary.routinePeriodsCount, '', ''],
+            ['Iuran per Periode', 'Rp 3.000', '', ''],
             ['Target Iuran Total', `Rp ${data.summary.totalExpectedIuran.toLocaleString('id-ID')}`, '', ''],
             ['Iuran Terkumpul', `Rp ${data.summary.totalActualIuran.toLocaleString('id-ID')}`, '', ''],
             ['', '', '', ''],
@@ -229,26 +229,28 @@ class EnhancedReportService {
         });
     }
 
-    // Create students sheet with weekly payment tracking
+    // Create students sheet with routine payment tracking
     async createStudentsSheet(sheet, data) {
-        const { students, weeksInMonth, summary } = data;
+        const { students, routinePeriods, summary } = data;
 
         // Title
-        sheet.getCell('A1').value = `LAPORAN PEMBAYARAN KAS MINGGUAN - ${summary.period}`;
+        sheet.getCell('A1').value = `LAPORAN PEMBAYARAN KAS RUTIN - ${summary.period}`;
         sheet.getCell('A1').font = { bold: true, size: 14 };
-        sheet.mergeCells('A1', `${String.fromCharCode(65 + 4 + weeksInMonth.length)}1`);
+        sheet.mergeCells('A1', `${String.fromCharCode(65 + 4 + routinePeriods.length)}1`);
 
         // Info
-        sheet.getCell('A2').value = `Iuran per minggu: Rp 3.000 | Total minggu: ${weeksInMonth.length} | Target per siswa: Rp ${(weeksInMonth.length * 3000).toLocaleString('id-ID')}`;
+        sheet.getCell('A2').value = `Iuran per periode: Rp 3.000 | Total periode: ${routinePeriods.length} | Target per siswa: Rp ${(routinePeriods.length * 3000).toLocaleString('id-ID')}`;
         sheet.getCell('A2').font = { italic: true };
-        sheet.mergeCells('A2', `${String.fromCharCode(65 + 4 + weeksInMonth.length)}2`);
+        sheet.mergeCells('A2', `${String.fromCharCode(65 + 4 + routinePeriods.length)}2`);
 
         // Headers
         const headers = ['No', 'Nama Siswa', 'Kelas'];
 
-        // Add week headers with date ranges
-        weeksInMonth.forEach(week => {
-            headers.push(week.labelWithDate);
+        // Add period headers with date ranges
+        routinePeriods.forEach(period => {
+            const startDate = period.startDate.toLocaleDateString('id-ID', { day: '2-digit', month: 'short' });
+            const endDate = period.endDate.toLocaleDateString('id-ID', { day: '2-digit', month: 'short' });
+            headers.push(`${period.periodLabel} (${startDate} - ${endDate})`);
         });
 
         headers.push('Total Bayar', 'Status', 'Persentase');
@@ -264,7 +266,7 @@ class EnhancedReportService {
                 fgColor: { argb: 'FF4472C4' }
             };
             cell.font.color = { argb: 'FFFFFFFF' };
-            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+            cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
         });
 
         // Data rows
@@ -276,9 +278,9 @@ class EnhancedReportService {
                 student.class_name || 'X TKJ A'
             ];
 
-            // Add weekly payment status
-            student.weeklyPayments.forEach(weekPayment => {
-                rowData.push(weekPayment.status);
+            // Add routine payment status
+            student.routinePayments.forEach(payment => {
+                rowData.push(payment.status);
             });
 
             // Add totals
@@ -290,18 +292,18 @@ class EnhancedReportService {
 
             row.values = rowData;
 
-            // Format weekly payment cells with multi-week support
-            student.weeklyPayments.forEach((weekPayment, weekIndex) => {
-                const weekCell = row.getCell(4 + weekIndex);
-                weekCell.alignment = { horizontal: 'center', vertical: 'middle' };
-                weekCell.font = { size: 12 };
+            // Format routine payment cells
+            student.routinePayments.forEach((payment, periodIndex) => {
+                const periodCell = row.getCell(4 + periodIndex);
+                periodCell.alignment = { horizontal: 'center', vertical: 'middle' };
+                periodCell.font = { size: 12 };
 
-                if (weekPayment.isPaid) {
-                    weekCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF90EE90' } }; // Green
-                } else if (weekPayment.isPartial) {
-                    weekCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFA500' } }; // Orange for partial
+                if (payment.isPaid) {
+                    periodCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF90EE90' } }; // Green
+                } else if (payment.isPartial) {
+                    periodCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFA500' } }; // Orange for partial
                 } else {
-                    weekCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFF6B6B' } }; // Red
+                    periodCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFF6B6B' } }; // Red
                 }
             });
 
@@ -320,8 +322,8 @@ class EnhancedReportService {
         sheet.columns.forEach((column, index) => {
             if (index === 1) { // Name column
                 column.width = 25;
-            } else if (index >= 3 && index < 3 + weeksInMonth.length) { // Week columns
-                column.width = 12;
+            } else if (index >= 3 && index < 3 + routinePeriods.length) { // Period columns
+                column.width = 18;
             } else {
                 column.width = 15;
             }
@@ -387,17 +389,21 @@ class EnhancedReportService {
     }
 
     // Generate CSV report
-    async generateCSVReport(year, month) {
+    async generateCSVReport() {
         try {
-            const data = await this.generateMonthlyData(year, month);
+            const data = await this.generateRoutineReportData();
+            if (!data.routinePeriods || data.routinePeriods.length === 0) {
+                return { success: false, error: 'No routine periods to generate report for.' };
+            }
 
             // Generate CSV content for students with weekly breakdown
-            const studentsCSV = this.generateStudentsCSV(data.students, data.weeksInMonth);
+            const studentsCSV = this.generateStudentsCSV(data.students, data.routinePeriods);
             const transactionsCSV = this.generateTransactionsCSV(data.transactions);
             const summaryCSV = this.generateSummaryCSV(data.summary);
 
             // Save CSV files
-            const baseFilename = `laporan-kas-${year}-${month.toString().padStart(2, '0')}`;
+            const today = new Date();
+            const baseFilename = `laporan-kas-${today.getFullYear()}-${(today.getMonth() + 1).toString().padStart(2, '0')}-${today.getDate().toString().padStart(2, '0')}`;
             
             const studentsFile = path.join(this.reportsDir, `${baseFilename}-siswa.csv`);
             const transactionsFile = path.join(this.reportsDir, `${baseFilename}-transaksi.csv`);
@@ -420,13 +426,15 @@ class EnhancedReportService {
         }
     }
 
-    generateStudentsCSV(students, weeksInMonth = []) {
-        // Build headers with weekly breakdown
+    generateStudentsCSV(students, routinePeriods = []) {
+        // Build headers with routine period breakdown
         let headers = ['No', 'Nama Siswa', 'Kelas'];
 
-        // Add weekly headers with date ranges
-        weeksInMonth.forEach(week => {
-            headers.push(week.labelWithDate);
+        // Add period headers with date ranges
+        routinePeriods.forEach(period => {
+            const startDate = period.startDate.toLocaleDateString('id-ID', { day: '2-digit', month: 'short' });
+            const endDate = period.endDate.toLocaleDateString('id-ID', { day: '2-digit', month: 'short' });
+            headers.push(`${period.periodLabel} (${startDate} - ${endDate})`);
         });
 
         headers.push('Total Bayar', 'Status', 'Persentase');
@@ -440,25 +448,24 @@ class EnhancedReportService {
                 `"${student.class_name || 'X TKJ A'}"`
             ];
 
-            // Add weekly payment status
-            if (student.weeklyPayments && student.weeklyPayments.length > 0) {
-                student.weeklyPayments.forEach(weekPayment => {
-                    rowData.push(`"${weekPayment.status}"`);
+            // Add routine payment status
+            if (student.routinePayments && student.routinePayments.length > 0) {
+                student.routinePayments.forEach(payment => {
+                    rowData.push(`"${payment.status}"`);
                 });
             } else {
-                // Fallback for old format
-                weeksInMonth.forEach(() => {
+                // Fallback if no payment data
+                routinePeriods.forEach(() => {
                     rowData.push('"[X]"');
                 });
             }
 
             // Add totals
-            const status = student.status || (student.total_paid >= 3000 ? 'Lunas' :
-                         student.total_paid > 0 ? 'Belum Lunas' : 'Belum Bayar');
+            const status = student.status || 'BELUM BAYAR';
             const percentage = student.paymentPercentage || 0;
 
             rowData.push(
-                `"Rp ${(student.totalPaid || student.total_paid || 0).toLocaleString('id-ID')}"`,
+                `"Rp ${(student.totalPaid || 0).toLocaleString('id-ID')}"`,
                 `"${status}"`,
                 `"${percentage}%"`
             );
@@ -516,122 +523,57 @@ class EnhancedReportService {
         }
     }
 
-    // Get weeks in a month for weekly payment tracking
-    getWeeksInMonth(year, month) {
-        const weeks = [];
-        const firstDay = new Date(year, month - 1, 1);
-        const lastDay = new Date(year, month, 0);
-
-        // Find the first Monday of the month (or the first day if it's not Monday)
-        let currentWeekStart = new Date(firstDay);
-        const dayOfWeek = firstDay.getDay();
-        const daysToMonday = dayOfWeek === 0 ? 1 : (8 - dayOfWeek) % 7;
-
-        if (daysToMonday > 0 && daysToMonday < 7) {
-            currentWeekStart.setDate(firstDay.getDate() + daysToMonday);
-        }
-
-        let weekNumber = 1;
-        while (currentWeekStart <= lastDay) {
-            const weekEnd = new Date(currentWeekStart);
-            weekEnd.setDate(currentWeekStart.getDate() + 6);
-
-            // Don't go beyond the month
-            if (weekEnd > lastDay) {
-                weekEnd.setTime(lastDay.getTime());
-            }
-
-            // Format tanggal untuk label yang lebih informatif
-            const startDate = currentWeekStart.getDate();
-            const endDate = weekEnd.getDate();
-            const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun',
-                              'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
-            const monthName = monthNames[month - 1];
-
-            // Create labels with date ranges
-            const dateRange = startDate === endDate ?
-                `${startDate} ${monthName}` :
-                `${startDate}-${endDate} ${monthName}`;
-
-            weeks.push({
-                number: weekNumber,
-                start: new Date(currentWeekStart),
-                end: new Date(weekEnd),
-                label: `Minggu ${weekNumber}`,
-                labelWithDate: `Minggu ${weekNumber} (${dateRange})`,
-                shortLabel: `M${weekNumber}`,
-                dateRange: dateRange,
-                startDate: startDate,
-                endDate: endDate,
-                monthName: monthName
-            });
-
-            // Move to next week
-            currentWeekStart.setDate(currentWeekStart.getDate() + 7);
-            weekNumber++;
-        }
-
-        return weeks;
-    }
-
-    // Process student weekly payment data with Multi-Week Payment support (FIXED)
-    async processStudentWeeklyPayments(students, transactions, weeksInMonth, year, month) {
-        const weeklyPaymentAmount = 3000; // Rp 3.000 per minggu
+    // Process student payments against the dynamic routine periods
+    async processStudentRoutinePayments(students, allTransactions, periods) {
+        const weeklyPaymentAmount = 3000; // Rp 3.000 per period
 
         return students.map(student => {
-            // Get student's iuran transactions for this month
-            const studentTransactions = transactions.filter(t =>
+            const studentTransactions = allTransactions.filter(t =>
                 t.student_id === student.id && t.type === 'iuran'
             );
 
-            // Calculate total amount paid by student
             const totalStudentPaid = studentTransactions.reduce((sum, t) => sum + parseFloat(t.amount), 0);
 
-            // Calculate how many weeks this payment covers
-            const fullWeeksPaid = Math.floor(totalStudentPaid / weeklyPaymentAmount);
-            const remainder = totalStudentPaid % weeklyPaymentAmount;
+            const routinePayments = periods.map(period => {
+                const transactionsInPeriod = studentTransactions.filter(t => {
+                    const txDate = new Date(t.created_at);
+                    return txDate >= period.startDate && txDate <= period.endDate;
+                });
 
-            // Process each week with corrected logic
-            const weeklyPayments = weeksInMonth.map(week => {
-                let status = '[X]'; // Default: not paid
-                let paid = 0;
+                const paidInPeriod = transactionsInPeriod.reduce((sum, t) => sum + parseFloat(t.amount), 0);
+
+                let status = '[X]';
                 let isPaid = false;
                 let isPartial = false;
 
-                // Simple cumulative logic: if student has paid enough for this week number
-                if (week.number <= fullWeeksPaid) {
-                    status = '[V]'; // Fully paid
-                    paid = weeklyPaymentAmount;
+                if (paidInPeriod >= weeklyPaymentAmount) {
+                    status = '[V]';
                     isPaid = true;
-                } else if (week.number === fullWeeksPaid + 1 && remainder > 0) {
-                    status = '[!]'; // Partially paid
-                    paid = remainder;
+                } else if (paidInPeriod > 0) {
+                    status = '[!]';
                     isPartial = true;
                 }
 
                 return {
-                    week: week.number,
-                    label: week.label,
+                    periodLabel: period.periodLabel,
                     expected: weeklyPaymentAmount,
-                    paid: paid,
-                    isPaid: isPaid,
-                    isPartial: isPartial,
-                    status: status,
-                    transactions: studentTransactions // Include all transactions for reference
+                    paid: paidInPeriod,
+                    isPaid,
+                    isPartial,
+                    status,
+                    transactions: transactionsInPeriod
                 };
             });
 
-            // Calculate totals
-            const totalExpected = weeksInMonth.length * weeklyPaymentAmount;
-            const paidWeeks = weeklyPayments.filter(w => w.isPaid).length;
-            const partialWeeks = weeklyPayments.filter(w => w.isPartial).length;
-            const paymentPercentage = Math.round((paidWeeks / weeksInMonth.length) * 100);
+            const totalExpected = periods.length * weeklyPaymentAmount;
+            const paidPeriods = routinePayments.filter(p => p.isPaid).length;
+            const partialPeriods = routinePayments.filter(p => p.isPartial).length;
+            const paymentPercentage = periods.length > 0 ? Math.round((paidPeriods / periods.length) * 100) : 0;
 
-            // Enhanced status calculation
             let status;
             if (paymentPercentage === 100) {
                 status = 'LUNAS';
-            } else if (paidWeeks > 0 || partialWeeks > 0) {
+            } else if (paidPeriods > 0 || partialPeriods > 0) {
                 status = 'SEBAGIAN';
             } else {
                 status = 'BELUM BAYAR';
@@ -639,33 +581,35 @@ class EnhancedReportService {
 
             return {
                 ...student,
-                weeklyPayments,
+                routinePayments,
                 totalExpected,
                 totalPaid: totalStudentPaid,
-                paidWeeks,
-                partialWeeks,
-                totalWeeks: weeksInMonth.length,
+                paidPeriods,
+                partialPeriods,
+                totalPeriods: periods.length,
                 paymentPercentage,
                 status,
-                fullWeeksPaid,
-                remainder
             };
         });
     }
 
     // Generate image report of weekly payment table
-    async generateImageReport(year, month) {
+    async generateImageReport() {
         try {
-            console.log(`Generating image report for ${month}/${year}...`);
+            console.log(`Generating image report...`);
 
             // Get data
-            const data = await this.generateMonthlyData(year, month);
+            const data = await this.generateRoutineReportData();
+            if (!data.routinePeriods || data.routinePeriods.length === 0) {
+                return { success: false, error: 'No routine periods to generate report for.' };
+            }
 
             // Create canvas
             const canvas = this.createPaymentTableCanvas(data);
 
             // Save image
-            const filename = `laporan-kas-${year}-${month.toString().padStart(2, '0')}.png`;
+            const today = new Date();
+            const filename = `laporan-kas-${today.getFullYear()}-${(today.getMonth() + 1).toString().padStart(2, '0')}-${today.getDate().toString().padStart(2, '0')}.png`;
             const filepath = path.join(this.reportsDir, filename);
 
             const buffer = canvas.toBuffer('image/png');
@@ -687,7 +631,7 @@ class EnhancedReportService {
 
     // Create canvas with payment table - Optimized for readability with emoji support
     createPaymentTableCanvas(data) {
-        const { students, weeksInMonth, summary } = data;
+        const { students, routinePeriods, summary } = data;
 
         // Optimized canvas dimensions for ALL students display
         const cellWidth = 90; // Slightly reduced for more compact layout
@@ -695,15 +639,15 @@ class EnhancedReportService {
         const nameColumnWidth = 160; // Reduced for space efficiency
         const headerHeight = 80; // Increased for multi-line headers
         const titleHeight = 100; // Increased for better spacing
-        const weekColumnWidth = 110; // Slightly reduced for space efficiency
+        const periodColumnWidth = 110; // Slightly reduced for space efficiency
 
         // Calculate total width more precisely
         const baseColumns = 3; // No, Name, Class
         const summaryColumns = 3; // Total, Status, %
-        const totalColumns = baseColumns + weeksInMonth.length + summaryColumns;
+        const totalColumns = baseColumns + routinePeriods.length + summaryColumns;
 
         const canvasWidth = nameColumnWidth + cellWidth + // No + Name columns
-                           (weeksInMonth.length * weekColumnWidth) + // Week columns
+                           (routinePeriods.length * periodColumnWidth) + // Period columns
                            (summaryColumns * cellWidth); // Summary columns
 
         // Calculate height for ALL students + minimal space for summary
@@ -723,19 +667,19 @@ class EnhancedReportService {
         ctx.fillStyle = '#2c3e50';
         ctx.font = 'bold 22px Arial';
         ctx.textAlign = 'center';
-        ctx.fillText(`LAPORAN PEMBAYARAN KAS MINGGUAN`, canvasWidth / 2, 35);
+        ctx.fillText(`LAPORAN PEMBAYARAN KAS RUTIN`, canvasWidth / 2, 35);
 
         ctx.font = '14px Arial';
         ctx.fillStyle = '#7f8c8d';
-        ctx.fillText(`${summary.period} | Iuran: Rp 3.000/minggu`, canvasWidth / 2, 60);
+        ctx.fillText(`${summary.period} | Iuran: Rp 3.000/periode`, canvasWidth / 2, 60);
 
         // Add summary info
         ctx.font = '12px Arial';
-        ctx.fillText(`Total Siswa: ${students.length} | Target: Rp ${(weeksInMonth.length * 3000 * students.length).toLocaleString('id-ID')}`, canvasWidth / 2, 80);
+        ctx.fillText(`Total Siswa: ${students.length} | Target: Rp ${(routinePeriods.length * 3000 * students.length).toLocaleString('id-ID')}`, canvasWidth / 2, 80);
 
         // Headers with improved layout
         const headers = ['No', 'Nama Siswa', 'Kelas'];
-        weeksInMonth.forEach(week => headers.push(week.shortLabel)); // Use short labels for headers
+        routinePeriods.forEach(period => headers.push(period.periodLabel)); // Use short labels for headers
         headers.push('Total', 'Status', '%');
 
         let currentX = 0;
@@ -763,7 +707,7 @@ class EnhancedReportService {
             if (index === 0) colWidth = cellWidth; // No
             else if (index === 1) colWidth = nameColumnWidth; // Name
             else if (index === 2) colWidth = cellWidth; // Class
-            else if (index >= 3 && index < 3 + weeksInMonth.length) colWidth = weekColumnWidth; // Weeks
+            else if (index >= 3 && index < 3 + routinePeriods.length) colWidth = periodColumnWidth; // Periods
             else colWidth = cellWidth; // Summary columns
 
             // Draw column separators
@@ -776,16 +720,18 @@ class EnhancedReportService {
                 ctx.stroke();
             }
 
-            // Header text with date info for week columns
-            if (index >= 3 && index < 3 + weeksInMonth.length) {
-                const weekIndex = index - 3;
-                const week = weeksInMonth[weekIndex];
+            // Header text with date info for period columns
+            if (index >= 3 && index < 3 + routinePeriods.length) {
+                const periodIndex = index - 3;
+                const period = routinePeriods[periodIndex];
+                const startDate = period.startDate.toLocaleDateString('id-ID', { day: '2-digit', month: 'short' });
+                const endDate = period.endDate.toLocaleDateString('id-ID', { day: '2-digit', month: 'short' });
 
                 ctx.font = 'bold 11px Arial';
-                ctx.fillText(week.label, currentX + colWidth / 2, headerY + 20);
+                ctx.fillText(period.periodLabel, currentX + colWidth / 2, headerY + 20);
 
                 ctx.font = '10px Arial';
-                ctx.fillText(`(${week.dateRange})`, currentX + colWidth / 2, headerY + 35);
+                ctx.fillText(`(${startDate} - ${endDate})`, currentX + colWidth / 2, headerY + 35);
 
                 ctx.font = '9px Arial';
                 ctx.fillText('Rp 3.000', currentX + colWidth / 2, headerY + 50);
@@ -824,9 +770,9 @@ class EnhancedReportService {
                 student.class_name || 'X TKJ A'
             ];
 
-            // Add weekly status
-            student.weeklyPayments.forEach(weekPayment => {
-                rowData.push(weekPayment.status);
+            // Add routine payment status
+            student.routinePayments.forEach(payment => {
+                rowData.push(payment.status);
             });
 
             rowData.push(
@@ -841,7 +787,7 @@ class EnhancedReportService {
                 if (colIndex === 0) colWidth = cellWidth; // No
                 else if (colIndex === 1) colWidth = nameColumnWidth; // Name
                 else if (colIndex === 2) colWidth = cellWidth; // Class
-                else if (colIndex >= 3 && colIndex < 3 + weeksInMonth.length) colWidth = weekColumnWidth; // Weeks
+                else if (colIndex >= 3 && colIndex < 3 + routinePeriods.length) colWidth = periodColumnWidth; // Periods
                 else colWidth = cellWidth; // Summary columns
 
                 // Cell border
@@ -854,13 +800,13 @@ class EnhancedReportService {
                 ctx.font = colIndex === 1 ? '9px Arial' : '10px Arial'; // Smaller font for compactness
                 ctx.textAlign = colIndex === 1 ? 'left' : 'center';
 
-                // Special styling for status cells with multi-week support
-                if (colIndex >= 3 && colIndex < 3 + weeksInMonth.length) {
-                    // Weekly payment status with background color
-                    const weekIndex = colIndex - 3;
-                    const weekPayment = student.weeklyPayments[weekIndex];
-                    const isPaid = weekPayment.isPaid;
-                    const isPartial = weekPayment.isPartial;
+                // Special styling for status cells
+                if (colIndex >= 3 && colIndex < 3 + routinePeriods.length) {
+                    // routine payment status with background color
+                    const periodIndex = colIndex - 3;
+                    const payment = student.routinePayments[periodIndex];
+                    const isPaid = payment.isPaid;
+                    const isPartial = payment.isPartial;
 
                     // Background color for status with better contrast
                     if (isPaid) {

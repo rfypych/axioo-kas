@@ -141,6 +141,50 @@ class Student {
             return false;
         }
     }
+
+    static async getStatusForPeriod(startDate, endDate) {
+        try {
+            const students = await this.getAll();
+            if (!students || students.length === 0) {
+                return [];
+            }
+
+            const formatDate = (date) => date.toISOString().split('T')[0];
+
+            const studentStatusPromises = students.map(async (student) => {
+                const query = `
+                    SELECT COALESCE(SUM(amount), 0) as paidInPeriod
+                    FROM transactions
+                    WHERE student_id = ?
+                    AND type = 'iuran'
+                    AND DATE(created_at) >= ? AND DATE(created_at) <= ?
+                `;
+                const params = [student.id, formatDate(startDate), formatDate(endDate)];
+                const result = await executeQuery(query, params);
+
+                const paidInPeriod = result.success ? parseFloat(result.data[0].paidInPeriod) : 0;
+
+                let status = 'pending';
+                if (paidInPeriod >= 3000) {
+                    status = 'paid';
+                } else if (paidInPeriod > 0) {
+                    status = 'partial';
+                }
+
+                return {
+                    ...student,
+                    paidInPeriod,
+                    status
+                };
+            });
+
+            return await Promise.all(studentStatusPromises);
+
+        } catch (error) {
+            console.error('Error in getStatusForPeriod:', error);
+            return [];
+        }
+    }
 }
 
 module.exports = Student;

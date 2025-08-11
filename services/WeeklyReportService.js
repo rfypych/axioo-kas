@@ -2,6 +2,8 @@ const cron = require('node-cron');
 const Student = require('../models/Student');
 const Transaction = require('../models/Transaction');
 const EnhancedReportService = require('./EnhancedReportService');
+const DateHelperService = require('./DateHelperService');
+const appSettings = require('../config/app-settings.json');
 
 class WeeklyReportService {
     constructor(bot) {
@@ -15,16 +17,23 @@ class WeeklyReportService {
     }
 
     // Enable weekly reports
-    enable(targetChatId, schedule = '0 8 * * 1') {
+    enable(targetChatId, newSchedule = null) {
         this.isEnabled = true;
-        this.schedule = schedule;
+
+        // Only update the schedule if a new one is provided.
+        if (newSchedule) {
+            this.schedule = newSchedule;
+        }
         
         // Add target chat if not already exists
         if (!this.targetChats.includes(targetChatId)) {
             this.targetChats.push(targetChatId);
         }
         
-        this.startScheduler();
+        // Restart the scheduler only if the schedule has changed or it wasn't running.
+        if (newSchedule || !this.task) {
+            this.startScheduler();
+        }
         return true;
     }
 
@@ -73,76 +82,85 @@ class WeeklyReportService {
         }
     }
 
-    // Generate and send weekly report
+    // Generate and send routine text report
     async sendWeeklyReport() {
         try {
-            const report = await this.generateWeeklyReport();
+            const report = await this.generateRoutineTextReport();
+            if (!report) {
+                console.log('Skipping routine report, no active period found.');
+                return;
+            }
             
             for (const chatId of this.targetChats) {
                 try {
                     await this.bot.sendMessage(chatId, report, { parse_mode: 'Markdown' });
-                    console.log(`✅ Weekly report sent to chat ${chatId}`);
+                    console.log(`✅ Routine text report sent to chat ${chatId}`);
                 } catch (error) {
                     console.error(`❌ Failed to send report to chat ${chatId}:`, error.message);
                 }
             }
         } catch (error) {
-            console.error('❌ Error generating weekly report:', error);
+            console.error('❌ Error generating routine text report:', error);
         }
     }
 
-    // Generate weekly report content
-    async generateWeeklyReport() {
-        const now = new Date();
-        const weekStart = new Date(now.setDate(now.getDate() - now.getDay() + 1)); // Monday
-        const weekEnd = new Date(weekStart);
-        weekEnd.setDate(weekStart.getDate() + 6); // Sunday
+    // Generate routine text report content for the latest period
+    async generateRoutineTextReport() {
+        const routineStartDate = appSettings.routineStartDate;
+        const today = new Date();
+        const periods = DateHelperService.getRoutinePeriods(routineStartDate, today);
 
-        // Get data
-        const balance = await Transaction.getBalance();
-        const weeklyCollection = await Transaction.getWeeklyCollection();
-        const weeklyPayments = await Student.getWeeklyPaymentStatus();
+        if (periods.length === 0) {
+            return null; // No periods to report on
+        }
+
+        const latestPeriod = periods[periods.length - 1];
+        const { startDate, endDate } = latestPeriod;
+
+        // Get data for the specific period
+        const balance = await Transaction.getBalance(); // Overall balance is fine
+        // Assumes getCollectionForPeriod will be created in Step 6
+        const periodCollection = await Transaction.getCollectionForPeriod(startDate, endDate);
+        // Assumes getStatusForPeriod will be created or adapted in Step 6
+        const periodPayments = await Student.getStatusForPeriod(startDate, endDate);
         
-        // Calculate statistics
-        const lunasCount = weeklyPayments.filter(s => s.status === 'paid').length;
-        const bayarTapiBelumlunasCount = weeklyPayments.filter(s => s.status === 'pending' && s.weekly_paid > 0).length;
-        const belumBayarCount = weeklyPayments.filter(s => s.weekly_paid === 0).length;
-        const totalStudents = weeklyPayments.length;
+        const totalStudents = await Student.getAll().then(s => s.length);
+        const lunasCount = periodPayments.filter(s => s.status === 'paid').length;
+        const bayarTapiBelumlunasCount = periodPayments.filter(s => s.status === 'partial').length;
+        const belumBayarCount = totalStudents - lunasCount - bayarTapiBelumlunasCount;
 
         // Generate report
-        let report = `📊 *LAPORAN MINGGUAN KAS KELAS*\n`;
-        report += `📅 Periode: ${this.formatDate(weekStart)} - ${this.formatDate(weekEnd)}\n\n`;
+        let report = `📊 *LAPORAN RUTIN KAS KELAS*\n`;
+        report += `📅 Periode: *${this.formatDate(startDate)} - ${this.formatDate(endDate)}*\n\n`;
 
         // Summary
-        report += `💰 *RINGKASAN KEUANGAN*\n`;
-        report += `💵 Saldo saat ini: Rp ${balance.balance.toLocaleString('id-ID')}\n`;
-        report += `📈 Total pemasukan: Rp ${balance.income.toLocaleString('id-ID')}\n`;
-        report += `📉 Total pengeluaran: Rp ${balance.expense.toLocaleString('id-ID')}\n\n`;
+        report += `💰 *RINGKASAN KEUANGAN (KESELURUHAN)*\n`;
+        report += `💵 Saldo saat ini: Rp ${balance.balance.toLocaleString('id-ID')}\n\n`;
 
-        // Weekly collection
-        report += `📅 *IURAN MINGGU INI*\n`;
-        report += `💰 Terkumpul: Rp ${weeklyCollection.weekly_total.toLocaleString('id-ID')}\n`;
-        report += `👥 Siswa lunas: ${weeklyCollection.students_lunas} dari ${totalStudents} siswa\n\n`;
+        // Period collection
+        report += `📅 *IURAN PERIODE INI*\n`;
+        report += `💰 Terkumpul: Rp ${periodCollection.total.toLocaleString('id-ID')}\n`;
+        report += `👥 Siswa lunas: ${periodCollection.lunasCount} dari ${totalStudents} siswa\n\n`;
 
         // Status breakdown
-        report += `📊 *STATUS PEMBAYARAN*\n`;
+        report += `📊 *STATUS PEMBAYARAN PERIODE INI*\n`;
         report += `✅ Lunas (≥ Rp 3.000): ${lunasCount} siswa\n`;
         report += `❕ Bayar tapi belum lunas: ${bayarTapiBelumlunasCount} siswa\n`;
         report += `❌ Belum bayar: ${belumBayarCount} siswa\n\n`;
 
         // Progress bar
-        const progressPercentage = Math.round((lunasCount / totalStudents) * 100);
+        const progressPercentage = totalStudents > 0 ? Math.round((lunasCount / totalStudents) * 100) : 0;
         const progressBar = this.generateProgressBar(progressPercentage);
-        report += `📈 *PROGRESS MINGGU INI*\n`;
+        report += `📈 *PROGRESS PERIODE INI*\n`;
         report += `${progressBar} ${progressPercentage}%\n\n`;
 
-        // Detailed student list (only those who paid)
-        const paidStudents = weeklyPayments.filter(s => s.weekly_paid > 0);
+        // Detailed student list (only those who paid in this period)
+        const paidStudents = periodPayments.filter(s => s.paidInPeriod > 0);
         if (paidStudents.length > 0) {
-            report += `👥 *SISWA YANG SUDAH BAYAR*\n`;
+            report += `👥 *SISWA YANG SUDAH BAYAR DI PERIODE INI*\n`;
             paidStudents.forEach(student => {
                 const emoji = student.status === 'paid' ? '✅' : '❕';
-                report += `${emoji} ${student.name}: Rp ${student.weekly_paid.toLocaleString('id-ID')}\n`;
+                report += `${emoji} ${student.name}: Rp ${student.paidInPeriod.toLocaleString('id-ID')}\n`;
             });
             report += `\n`;
         }
@@ -239,8 +257,12 @@ class WeeklyReportService {
             const reportFormat = format || this.reportFormat;
 
             if (reportFormat === 'text') {
-                const report = await this.generateWeeklyReport();
-                await this.bot.sendMessage(chatId, report, { parse_mode: 'Markdown' });
+                const report = await this.generateRoutineTextReport();
+                if (report) {
+                    await this.bot.sendMessage(chatId, report, { parse_mode: 'Markdown' });
+                } else {
+                    await this.bot.sendMessage(chatId, "Tidak ada periode laporan rutin untuk ditampilkan.");
+                }
             } else {
                 await this.sendFileReport(chatId, reportFormat);
             }
@@ -251,67 +273,41 @@ class WeeklyReportService {
         }
     }
 
-    // Send file-based reports (Excel/CSV)
+    // Send file-based reports (Excel/CSV/Image)
     async sendFileReport(chatId, format) {
         try {
-            const now = new Date();
-            let year = now.getFullYear();
-            let month = now.getMonth() + 1;
-
-            // Auto-rotate to previous month if we're in first week of new month
-            if (now.getDate() <= 7) {
-                const prevMonth = new Date(year, month - 2, 1); // Go to previous month
-                year = prevMonth.getFullYear();
-                month = prevMonth.getMonth() + 1;
-
-                this.bot.sendMessage(chatId, `📅 Auto-detecting: Generating report for previous month (${month}/${year}) since we're in early ${now.getMonth() + 1}/${now.getFullYear()}`);
-            }
-
-            this.bot.sendMessage(chatId, `⏳ Membuat laporan ${format.toUpperCase()} untuk bulan ${month}/${year}...`);
+            this.bot.sendMessage(chatId, `⏳ Membuat laporan ${format.toUpperCase()}...`);
 
             if (format === 'excel') {
-                const result = await this.enhancedReport.generateExcelReport(year, month);
-
+                const result = await this.enhancedReport.generateExcelReport();
                 if (result.success) {
-                    // Send Excel file
                     await this.bot.sendDocument(chatId, result.filepath, {
-                        caption: `📊 *Laporan Kas Kelas - ${month}/${year}*\n\n` +
-                                `📁 Format: Excel (XLSX)\n` +
-                                `📅 Periode: ${result.data.summary.period}\n` +
-                                `💰 Saldo: Rp ${result.data.summary.balance.toLocaleString('id-ID')}\n` +
-                                `👥 Siswa: ${result.data.summary.studentsWithPayments}/${result.data.summary.totalStudents} sudah bayar`,
+                        caption: `📊 *Laporan Kas Rutin*\n\n` +
+                                 `📁 Format: Excel (XLSX)\n` +
+                                 `📅 Periode: ${result.data.summary.period}`,
                         parse_mode: 'Markdown'
                     });
                 } else {
                     this.bot.sendMessage(chatId, `❌ Gagal membuat laporan Excel: ${result.error}`);
                 }
             } else if (format === 'csv') {
-                const result = await this.enhancedReport.generateCSVReport(year, month);
-
+                const result = await this.enhancedReport.generateCSVReport();
                 if (result.success) {
-                    // Send CSV files
-                    this.bot.sendMessage(chatId, `📊 *Laporan Kas Kelas - ${month}/${year}*\n\n📁 Format: CSV (3 file terpisah)`, { parse_mode: 'Markdown' });
-
+                    this.bot.sendMessage(chatId, `📊 *Laporan Kas Rutin*\n\n📁 Format: CSV (3 file terpisah)`, { parse_mode: 'Markdown' });
                     for (const filepath of result.files) {
                         const filename = require('path').basename(filepath);
-                        await this.bot.sendDocument(chatId, filepath, {
-                            caption: `📄 ${filename}`
-                        });
+                        await this.bot.sendDocument(chatId, filepath, { caption: `📄 ${filename}` });
                     }
                 } else {
                     this.bot.sendMessage(chatId, `❌ Gagal membuat laporan CSV: ${result.error}`);
                 }
             } else if (format === 'image' || format === 'gambar') {
-                const result = await this.enhancedReport.generateImageReport(year, month);
-
+                const result = await this.enhancedReport.generateImageReport();
                 if (result.success) {
-                    // Send image file
                     await this.bot.sendPhoto(chatId, result.buffer, {
-                        caption: `📊 *Laporan Pembayaran Kas Mingguan - ${month}/${year}*\n\n` +
-                                `🖼️ Format: Gambar Tabel\n` +
-                                `📅 Periode: ${month}/${year}\n` +
-                                `💰 Iuran: Rp 3.000/minggu\n` +
-                                `📋 Tabel lengkap dengan status pembayaran per minggu`,
+                        caption: `📊 *Laporan Pembayaran Kas Rutin*\n\n` +
+                                 `🖼️ Format: Gambar Tabel\n` +
+                                 `📅 Periode: ${result.data.summary.period}`,
                         parse_mode: 'Markdown'
                     });
                 } else {
