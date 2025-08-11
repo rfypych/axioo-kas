@@ -1,3 +1,5 @@
+const fs = require('fs').promises;
+const path = require('path');
 const TelegramBot = require('node-telegram-bot-api');
 const Student = require('./models/Student');
 const Transaction = require('./models/Transaction');
@@ -6,6 +8,8 @@ const WeeklyReportService = require('./services/WeeklyReportService');
 const EnhancedReportService = require('./services/EnhancedReportService');
 const EnhancedAIService = require('./services/EnhancedAIService');
 const MultiWeekPaymentService = require('./services/MultiWeekPaymentService');
+const DateHelperService = require('./services/DateHelperService');
+const appSettings = require('./config/app-settings.json');
 require('dotenv').config();
 
 class AxiooKasBot {
@@ -301,57 +305,53 @@ Atau kirim pesan langsung untuk diproses dengan AI!
             const parts = params.split(' ');
 
             if (parts[0] === 'status') {
-                // Show enhanced weekly payment status with week breakdown
-                const MonthlyResetService = require('./services/MonthlyResetService');
-                const monthlyService = new MonthlyResetService();
+                const routineStartDate = appSettings.routineStartDate;
+                const today = new Date();
+                const periods = DateHelperService.getRoutinePeriods(routineStartDate, today);
 
-                const students = await monthlyService.getAllStudentsCurrentMonthStatus();
-                const currentDate = new Date();
-                const month = currentDate.getMonth() + 1;
-                const year = currentDate.getFullYear();
+                if (periods.length === 0) {
+                    this.bot.sendMessage(chatId, "Status iuran belum dapat ditampilkan karena tanggal mulai rutin belum diatur atau belum ada periode yang lewat.");
+                    return;
+                }
 
-                // Calculate week date ranges
-                const weekRanges = this.getWeeklyDateRanges(year, month);
-                const nextMonth = month === 12 ? 1 : month + 1;
-                const nextYear = month === 12 ? year + 1 : year;
+                const students = await Student.getAll();
+                const allTransactions = await Transaction.getTransactionsBetween(periods[0].startDate, today);
 
-                let message = `📊 *Status Iuran Mingguan:*\n`;
-                message += `📅 *Bulan:* ${month}/${year}\n`;
-                message += `💰 *Iuran:* Rp 3.000/minggu\n\n`;
-
-                // Add weekly date ranges with month name
-                const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
-                const currentMonthName = monthNames[month - 1];
-                const nextMonthName = monthNames[nextMonth - 1];
-
-                message += `📅 *Rentang Tanggal Minggu:*\n`;
-                weekRanges.forEach((range, index) => {
-                    message += `Minggu ${index + 1} (${range.start}-${range.end} ${currentMonthName})\n`;
-                });
-                message += `\n🔄 *Bulan Berikutnya:* ${nextMonthName} ${nextYear}\n\n`;
+                let message = `📊 *Status Iuran Rutin*\n`;
+                message += `📅 Dimulai dari: ${new Date(routineStartDate).toLocaleDateString('id-ID')}\n`;
+                message += `💰 Iuran: Rp 3.000 / periode\n\n`;
 
                 students.forEach(student => {
-                    // Generate week status indicators
-                    let weekStatus = '';
-                    for (let week = 1; week <= 4; week++) {
-                        if (week <= student.weeks_paid) {
-                            weekStatus += '✅';
-                        } else if (week === student.weeks_paid + 1 && student.remainder > 0) {
-                            weekStatus += '❕';
-                        } else {
-                            weekStatus += '❌';
-                        }
-                    }
+                    const studentTransactions = allTransactions.filter(t => t.student_id === student.id && t.type === 'iuran');
+                    let statusString = '';
 
-                    const amount = student.monthly_paid > 0 ? ` (Rp ${student.monthly_paid.toLocaleString('id-ID')})` : '';
-                    message += `${weekStatus} ${student.name}${amount}\n`;
+                    periods.forEach(period => {
+                        const paidInPeriod = studentTransactions
+                            .filter(t => {
+                                const txDate = new Date(t.created_at);
+                                return txDate >= period.startDate && txDate <= period.endDate;
+                            })
+                            .reduce((sum, t) => sum + parseFloat(t.amount), 0);
+
+                        if (paidInPeriod >= 3000) {
+                            statusString += '✅';
+                        } else if (paidInPeriod > 0) {
+                            statusString += '❕';
+                        } else {
+                            statusString += '❌';
+                        }
+                    });
+
+                    const totalPaid = studentTransactions.reduce((sum, t) => sum + parseFloat(t.amount), 0);
+                    const amount = totalPaid > 0 ? ` (Rp ${totalPaid.toLocaleString('id-ID')})` : '';
+                    message += `${statusString} ${student.name}${amount}\n`;
                 });
 
                 message += `\n📋 *Keterangan:*\n`;
                 message += `✅ = Lunas (Rp 3.000)\n`;
                 message += `❕ = Sebagian (< Rp 3.000)\n`;
                 message += `❌ = Belum bayar\n`;
-                message += `\n💡 *Format:* Minggu 1-2-3-4`;
+                message += `\nTotal periode sejauh ini: ${periods.length}`;
 
                 this.bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
                 return;
@@ -1007,6 +1007,7 @@ Jadwal: ${this.escapeMarkdown(config.schedule)} (Cron format)
 • /laporan status - Lihat status konfigurasi
 • /laporan jadwal \\[cron\\] - Ubah jadwal (contoh: "0 8 \\* \\* 1")
 • /laporan format \\[text/excel/csv/image\\] - Ubah format laporan
+• /laporan set-tanggal YYYY-MM-DD - Atur tanggal mulai rutin iuran
 
 📅 *Jadwal Default:*
 • 0 8 \\* \\* 1 = Setiap Senin jam 08:00
@@ -1089,6 +1090,31 @@ Jadwal: ${this.escapeMarkdown(config.schedule)} (Cron format)
                         this.bot.sendMessage(chatId, `✅ Format laporan diubah ke: *${newFormat.toUpperCase()}*`, { parse_mode: 'Markdown' });
                     } else {
                         this.bot.sendMessage(chatId, '❌ Format tidak valid. Pilihan: text, excel, csv, image');
+                    }
+                    break;
+
+                case 'set-tanggal':
+                    if (parts.length < 2) {
+                        this.bot.sendMessage(chatId, '❌ Format tanggal salah. Gunakan: YYYY-MM-DD\nContoh: `/laporan set-tanggal 2025-08-06`');
+                        return;
+                    }
+                    const newDate = parts[1];
+                    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+                    if (!dateRegex.test(newDate) || isNaN(new Date(newDate).getTime())) {
+                        this.bot.sendMessage(chatId, '❌ Format tanggal tidak valid. Pastikan formatnya YYYY-MM-DD.');
+                        return;
+                    }
+
+                    try {
+                        const configPath = path.join(__dirname, 'config', 'app-settings.json');
+                        const configData = await fs.readFile(configPath, 'utf8');
+                        const config = JSON.parse(configData);
+                        config.routineStartDate = newDate;
+                        await fs.writeFile(configPath, JSON.stringify(config, null, 2), 'utf8');
+                        this.bot.sendMessage(chatId, `✅ Tanggal mulai rutin berhasil diubah ke: *${newDate}*`, { parse_mode: 'Markdown' });
+                    } catch (error) {
+                        console.error('Error updating routine start date:', error);
+                        this.bot.sendMessage(chatId, '❌ Terjadi kesalahan saat menyimpan tanggal baru.');
                     }
                     break;
 
