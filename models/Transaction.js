@@ -230,6 +230,74 @@ class Transaction {
             return { weekly_total: 0, students_lunas: 0 };
         }
     }
+
+    static async getCollectionForRange(startDate, endDate) {
+        try {
+            const weeklyAmount = 3000;
+            const startDateISO = new Date(startDate).toISOString().slice(0, 19).replace('T', ' ');
+            const endDateISO = new Date(endDate).toISOString().slice(0, 19).replace('T', ' ');
+
+            const totalQuery = `
+                SELECT COALESCE(SUM(amount), 0) as weekly_total
+                FROM transactions
+                WHERE type = 'iuran'
+                AND created_at BETWEEN ? AND ?
+                AND student_id IS NOT NULL
+            `;
+            const totalResult = await executeQuery(totalQuery, [startDateISO, endDateISO]);
+            const weeklyTotal = totalResult.success ? parseFloat(totalResult.data[0].weekly_total) || 0 : 0;
+
+            const lunasQuery = `
+                SELECT COUNT(*) as students_lunas
+                FROM (
+                    SELECT student_id
+                    FROM transactions
+                    WHERE type = 'iuran'
+                    AND created_at BETWEEN ? AND ?
+                    AND student_id IS NOT NULL
+                    GROUP BY student_id
+                    HAVING SUM(amount) >= ?
+                ) as lunas_students
+            `;
+            const lunasResult = await executeQuery(lunasQuery, [startDateISO, endDateISO, weeklyAmount]);
+            const studentsLunas = lunasResult.success ? parseInt(lunasResult.data[0].students_lunas) || 0 : 0;
+
+            return {
+                weekly_total: weeklyTotal,
+                students_lunas: studentsLunas
+            };
+
+        } catch (error) {
+            console.error('Error in getCollectionForRange:', error);
+            return { weekly_total: 0, students_lunas: 0 };
+        }
+    }
+
+     static async getStudentPaymentsForRange(studentId, startDate, endDate) {
+        try {
+            const query = `
+                SELECT COALESCE(SUM(amount), 0) as total_paid
+                FROM transactions
+                WHERE student_id = ?
+                AND type = 'iuran'
+                AND created_at >= ?
+                AND created_at <= ?
+            `;
+
+            const startDateISO = new Date(startDate).toISOString().slice(0, 19).replace('T', ' ');
+            const endDateISO = new Date(endDate).toISOString().slice(0, 19).replace('T', ' ');
+
+            const result = await executeQuery(query, [studentId, startDateISO, endDateISO]);
+
+            if (result.success && result.data.length > 0) {
+                return parseFloat(result.data[0].total_paid) || 0;
+            }
+            return 0;
+        } catch (error) {
+            console.error('Error in getStudentPaymentsForRange:', error);
+            return 0;
+        }
+    }
 }
 
 module.exports = Transaction;

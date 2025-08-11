@@ -3,6 +3,7 @@ const Student = require('../models/Student');
 const Transaction = require('../models/Transaction');
 const EnhancedReportService = require('./EnhancedReportService');
 const ConfigurableReportService = require('./ConfigurableReportService');
+const moment = require('moment');
 
 class WeeklyReportService {
     constructor(bot) {
