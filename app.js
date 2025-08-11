@@ -11,7 +11,7 @@ const { testConnection } = require('./config/database');
 const routes = require('./routes');
 
 // Import services
-// const MonthlyResetService = require('./services/MonthlyResetService'); // DEPRECATED
+const MonthlyResetService = require('./services/MonthlyResetService');
 
 // Create Express app
 const app = express();
@@ -123,8 +123,14 @@ async function startServer() {
             console.log('   • API: /api/*');
             console.log('');
 
-            // Monthly reset scheduler is deprecated and removed.
-            // The new system uses a dynamic weekly report schedule managed by WeeklyReportService.
+            // Start monthly reset scheduler
+            try {
+                const monthlyResetService = new MonthlyResetService();
+                monthlyResetService.startScheduler();
+                console.log('📅 Monthly reset scheduler started');
+            } catch (error) {
+                console.log('⚠️ Failed to start monthly reset scheduler:', error.message);
+            }
 
             if (process.env.ENABLE_TELEGRAM_BOT === 'true') {
                 console.log('🤖 To start Telegram bot, run: node telegram-bot.js');

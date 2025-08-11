@@ -1,5 +1,6 @@
 {
-  "reportingDay": 5,
+  "reportingDay": 3,
   "reportingHour": 8,
-  "reportingMinute": 0
+  "reportingMinute": 0,
+  "startDate": "2025-08-01"
 }

@@ -141,58 +141,6 @@ class Student {
             return false;
         }
     }
-
-    static async getAllActive() {
-        try {
-            const query = `
-                SELECT id, name FROM students
-                WHERE (status = 'active' OR status IS NULL OR status = '')
-                ORDER BY name ASC
-            `;
-            const result = await executeQuery(query);
-            return result.success ? result.data : [];
-        } catch (error) {
-            console.error('Student.getAllActive error:', error);
-            return [];
-        }
-    }
-
-    static async getPaymentStatusForRange(startDate, endDate) {
-        try {
-            const weeklyAmount = 3000; // This should be a global config
-            const startDateISO = new Date(startDate).toISOString().slice(0, 19).replace('T', ' ');
-            const endDateISO = new Date(endDate).toISOString().slice(0, 19).replace('T', ' ');
-
-            const query = `
-                SELECT
-                    s.id,
-                    s.name,
-                    COALESCE(SUM(t.amount), 0) as weekly_paid
-                FROM students s
-                LEFT JOIN transactions t ON s.id = t.student_id
-                    AND t.type = 'iuran'
-                    AND t.created_at BETWEEN ? AND ?
-                WHERE
-                    (s.status = 'active' OR s.status IS NULL OR s.status = '')
-                GROUP BY s.id, s.name
-                ORDER BY s.name ASC
-            `;
-
-            const result = await executeQuery(query, [startDateISO, endDateISO]);
-
-            if (result.success) {
-                return result.data.map(student => ({
-                    ...student,
-                    weekly_paid: parseFloat(student.weekly_paid),
-                    status: parseFloat(student.weekly_paid) >= weeklyAmount ? 'paid' : 'pending'
-                }));
-            }
-            return [];
-        } catch (error) {
-            console.error('Error in getPaymentStatusForRange:', error);
-            return [];
-        }
-    }
 }
 
 module.exports = Student;

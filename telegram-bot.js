@@ -20,7 +20,7 @@ class AxiooKasBot {
             return;
         }
         
-        const polling = options.polling !== false; // Default to true
+        const polling = options.polling !== false;
         this.bot = new TelegramBot(this.token, { polling });
         this.weeklyReport = new WeeklyReportService(this.bot);
         this.enhancedReport = new EnhancedReportService();
@@ -307,48 +307,42 @@ Atau kirim pesan langsung untuk diproses dengan AI!
                 this.bot.sendMessage(chatId, '⏳ Menyiapkan status iuran mingguan...');
 
                 const weeklyAmount = 3000;
-                const reportDayName = await this.configurableReport.getReportingDayName();
-                const weekRanges = await this.configurableReport.getMultipleWeekRanges(4, new Date(), 'future');
-                const students = await Student.getAllActive(); // Assuming this function exists
+                const ranges = await this.configurableReport.getWeekRanges(new Date(), 4);
+                const students = await Student.getAllActive();
+                const dayNames = this.configurableReport.dayNames;
 
-                let message = `📊 *Status Iuran 4 Minggu Kedepan*\n`;
-                message += `*Tutup buku setiap hari:* ${reportDayName}\n`;
-                message += `💰 *Iuran:* Rp ${weeklyAmount.toLocaleString('id-ID')}/minggu\n\n`;
+                let message = '📊 *Status Iuran Mingguan*\n\n';
 
-                message += `📅 *Periode Minggu:*\n`;
-                weekRanges.forEach((range, index) => {
-                    const start = `${range.startDate.getDate().toString().padStart(2, '0')}/${(range.startDate.getMonth() + 1).toString().padStart(2, '0')}`;
-                    const end = `${range.endDate.getDate().toString().padStart(2, '0')}/${(range.endDate.getMonth() + 1).toString().padStart(2, '0')}`;
-                    message += `Minggu ${index + 1}: ${start} - ${end}\n`;
+                // Build the header row
+                let header = 'Nama'.padEnd(12);
+                ranges.forEach(range => {
+                    const dayName = dayNames[range.endDate.getDay()].substring(0, 3);
+                    const dateStr = `${dayName} ${range.endDate.getDate()}/${range.endDate.getMonth() + 1}`;
+                    header += `| ${dateStr.padEnd(10)}`;
                 });
-                message += `\n`;
 
-                const studentStatuses = [];
+                const studentRows = [];
                 for (const student of students) {
-                    let weekStatus = '';
-                    let totalPaidAllWeeks = 0;
-                    for (const range of weekRanges) {
+                    let studentRow = student.name.padEnd(12);
+                    for (const range of ranges) {
                         const totalPaid = await Transaction.getStudentPaymentsForRange(student.id, range.startDate, range.endDate);
-                        totalPaidAllWeeks += totalPaid;
+                        let statusEmoji = '❌';
                         if (totalPaid >= weeklyAmount) {
-                            weekStatus += '✅';
+                            statusEmoji = '✅';
                         } else if (totalPaid > 0) {
-                            weekStatus += '❕';
-                        } else {
-                            weekStatus += '❌';
+                            statusEmoji = '❕';
                         }
+                        studentRow += `| ${statusEmoji.padEnd(10)}`;
                     }
-                    const amountText = totalPaidAllWeeks > 0 ? ` (Rp ${totalPaidAllWeeks.toLocaleString('id-ID')})` : '';
-                    studentStatuses.push(`${weekStatus} ${student.name}${amountText}`);
+                    studentRows.push(studentRow);
                 }
 
-                message += studentStatuses.join('\n');
+                message += '```\n' + header + '\n' + '-'.repeat(header.length) + '\n' + studentRows.join('\n') + '\n```';
 
-                message += `\n\n📋 *Keterangan:*\n`;
+                message += `\n*Keterangan:*\n`;
                 message += `✅ = Lunas (Rp ${weeklyAmount.toLocaleString('id-ID')})\n`;
                 message += `❕ = Sebagian Dibayar\n`;
                 message += `❌ = Belum Bayar\n`;
-                message += `\n💡 *Format:* Minggu 1-2-3-4`;
 
                 this.bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
                 return;
@@ -990,39 +984,33 @@ Ketik \`/ya\` untuk konfirmasi atau \`/tidak\` untuk membatalkan.
     async handleLaporanMenu(msg) {
         const chatId = msg.chat.id;
         const config = this.weeklyReport.getConfig();
-        const reportDayName = await this.configurableReport.getReportingDayName();
+        const { reportingDay, startDate } = await this.configurableReport.getConfig();
+        const dayName = this.configurableReport.dayNames[reportingDay];
 
         const menuMessage = `📊 *Menu Laporan Mingguan*
 
-Status saat ini: ${config.enabled ? '✅ Aktif' : '❌ Nonaktif'}
-Target chat: ${config.targetChats.length > 0 ? config.targetChats.join(', ') : 'Belum diatur'}
-Jadwal: ${this.escapeMarkdown(config.schedule)} (Cron format)
-Hari Lapor: *${reportDayName}*
+*Pengaturan Saat Ini:*
+- Status Laporan: ${config.enabled ? '✅ Aktif' : '❌ Nonaktif'}
+- Jadwal Kirim: \`${this.escapeMarkdown(config.schedule)}\`
+- Hari Laporan: *${dayName}*
+- Tanggal Mulai: *${new Date(startDate).toLocaleDateString('id-ID')}*
 
-🎯 *Commands tersedia:*
-• /laporan aktif - Aktifkan laporan mingguan
-• /laporan nonaktif - Nonaktifkan laporan mingguan
-• /laporan aturhari [hari] - Ubah hari pelaporan (e.g., rabu)
-• /laporan test \\[format\\] - Kirim laporan test sekarang
-• /laporan status - Lihat status konfigurasi
-• /laporan jadwal \\[cron\\] - Ubah jadwal (contoh: "0 8 \\* \\* 1")
-• /laporan format \\[text/excel/csv/image\\] - Ubah format laporan
+🎯 *Commands Pengaturan:*
+• \`/laporan aturhari [hari]\`
+  _(e.g., /laporan aturhari rabu)_
+• \`/laporan aturmulai [dd/mm/yyyy]\`
+  _(e.g., /laporan aturmulai 6/8/2025)_
+• \`/laporan jadwal [cron]\`
+  _(e.g., /laporan jadwal "0 8 * * 3")_
 
-📅 *Jadwal Default:*
-• 0 8 \\* \\* 1 = Setiap Senin jam 08:00
-• 0 17 \\* \\* 5 = Setiap Jumat jam 17:00
-• 0 9 \\* \\* 0 = Setiap Minggu jam 09:00
+⚙️ *Commands Lainnya:*
+• \`/laporan aktif\` - Aktifkan laporan otomatis
+• \`/laporan nonaktif\` - Nonaktifkan laporan
+• \`/laporan test [format]\` - Kirim laporan tes
+• \`/laporan format [format]\` - Ubah format file
+• \`/laporan status\` - Lihat status lengkap
 
-🎨 *Format Laporan:*
-• text - Laporan teks sederhana
-• excel - File Excel dengan 3 sheet
-• csv - 3 file CSV terpisah
-• image - Gambar tabel pembayaran mingguan
-
-💡 *Contoh penggunaan:*
-• /laporan aturhari rabu
-• /laporan jadwal 0 17 \\* \\* 5 - Ubah ke Jumat 17:00
-• /laporan test excel - Test laporan Excel`;
+🎨 *Format Laporan:* text, excel, csv, image`;
 
         this.bot.sendMessage(chatId, menuMessage, { parse_mode: 'Markdown' });
     }
@@ -1036,85 +1024,95 @@ Hari Lapor: *${reportDayName}*
             switch (action) {
                 case 'aktif':
                     this.weeklyReport.enable(chatId);
-                    this.bot.sendMessage(chatId, '✅ Laporan mingguan diaktifkan untuk chat ini!\n\n📅 Laporan akan dikirim sesuai jadwal.');
+                    this.bot.sendMessage(chatId, '✅ Laporan mingguan diaktifkan.');
                     break;
 
                 case 'nonaktif':
                     this.weeklyReport.disable(chatId);
-                    this.bot.sendMessage(chatId, '❌ Laporan mingguan dinonaktifkan untuk chat ini');
+                    this.bot.sendMessage(chatId, '❌ Laporan mingguan dinonaktifkan.');
                     break;
 
                 case 'aturhari':
                     if (parts.length < 2) {
-                        this.bot.sendMessage(chatId, '❌ Format salah. Gunakan: /laporan aturhari [nama hari]\nContoh: /laporan aturhari rabu');
-                        return;
+                        return this.bot.sendMessage(chatId, 'Format salah. Contoh: `/laporan aturhari rabu`');
                     }
                     const dayName = parts[1];
-                    const result = await this.configurableReport.setReportingDay(dayName);
-                    if (result.success) {
-                        // Automatically update the weekly report schedule
+                    const dayResult = await this.configurableReport.setReportingDay(dayName);
+                    if (dayResult.success) {
                         await this.weeklyReport.updateSchedule();
                         const newConfig = this.weeklyReport.getConfig();
-                        this.bot.sendMessage(chatId, `✅ Hari pelaporan berhasil diubah ke: *${result.day}*.\n\n🤖 Jadwal laporan otomatis telah diupdate ke:\n\`${newConfig.schedule}\``, { parse_mode: 'Markdown' });
+                        this.bot.sendMessage(chatId, `✅ Hari pelaporan diubah ke *${dayResult.day}*.\nJadwal otomatis diupdate ke: \`${newConfig.schedule}\``, { parse_mode: 'Markdown' });
                     } else {
-                        this.bot.sendMessage(chatId, `❌ Gagal mengubah hari: ${result.message}`);
+                        this.bot.sendMessage(chatId, `❌ Gagal: ${dayResult.message}`);
+                    }
+                    break;
+
+                case 'aturmulai':
+                     if (parts.length < 2) {
+                        return this.bot.sendMessage(chatId, 'Format salah. Contoh: `/laporan aturmulai 6/8/2025`');
+                    }
+                    const dateString = parts[1];
+                    const dateResult = await this.configurableReport.setStartDate(dateString);
+                     if (dateResult.success) {
+                        this.bot.sendMessage(chatId, `✅ Tanggal mulai perhitungan diubah ke *${dateResult.date}*.`, { parse_mode: 'Markdown' });
+                    } else {
+                        this.bot.sendMessage(chatId, `❌ Gagal: ${dateResult.message}`);
                     }
                     break;
 
                 case 'test':
-                    const format = parts[1] || null; // Optional format parameter
-                    this.bot.sendMessage(chatId, `⏳ Membuat laporan test${format ? ` (${format})` : ''}...`);
+                    const format = parts[1] || null;
+                    this.bot.sendMessage(chatId, `⏳ Membuat laporan tes...`);
                     const success = await this.weeklyReport.triggerManualReport(chatId, format);
                     if (!success) {
-                        this.bot.sendMessage(chatId, '❌ Gagal membuat laporan test');
+                        this.bot.sendMessage(chatId, '❌ Gagal membuat laporan tes.');
                     }
                     break;
 
                 case 'status':
-                    const config = this.weeklyReport.getConfig();
-                    const reportDayName = await this.configurableReport.getReportingDayName();
-                    let statusMsg = `📊 *Status Laporan Mingguan*\n\n`;
-                    statusMsg += `Status: ${config.enabled ? '✅ Aktif' : '❌ Nonaktif'}\n`;
-                    statusMsg += `Hari Lapor: *${reportDayName}*\n`;
-                    statusMsg += `Target chats: ${config.targetChats.length}\n`;
-                    statusMsg += `Jadwal: ${this.escapeMarkdown(config.schedule)}\n`;
-                    statusMsg += `Format: ${config.reportFormat.toUpperCase()}\n`;
-                    if (config.nextRun) {
-                        statusMsg += `Laporan berikutnya: ${this.escapeMarkdown(config.nextRun.toString())}`;
+                    const weeklyConfig = this.weeklyReport.getConfig();
+                    const reportConfig = await this.configurableReport.getConfig();
+                    const dayNameStatus = this.configurableReport.dayNames[reportConfig.reportingDay];
+                    let statusMsg = `📊 *Status Laporan Lengkap*\n\n`;
+                    statusMsg += `- Status Laporan: *${weeklyConfig.enabled ? '✅ Aktif' : '❌ Nonaktif'}*\n`;
+                    statusMsg += `- Hari Laporan: *${dayNameStatus}*\n`;
+                    statusMsg += `- Tgl Mulai Siklus: *${new Date(reportConfig.startDate).toLocaleDateString('id-ID')}*\n`;
+                    statusMsg += `- Jadwal Cron: \`${this.escapeMarkdown(weeklyConfig.schedule)}\`\n`;
+                    statusMsg += `- Format File: *${weeklyConfig.reportFormat.toUpperCase()}*\n`;
+                    if (weeklyConfig.nextRun) {
+                        statusMsg += `- Laporan Berikutnya: ${this.escapeMarkdown(weeklyConfig.nextRun.toString())}\n`;
                     }
                     this.bot.sendMessage(chatId, statusMsg, { parse_mode: 'Markdown' });
                     break;
 
                 case 'jadwal':
-                    if (parts.length < 6) {
-                        this.bot.sendMessage(chatId, '❌ Format jadwal salah. Contoh: /laporan jadwal 0 8 \\* \\* 1');
-                        return;
+                    if (parts.length < 2) {
+                        return this.bot.sendMessage(chatId, 'Format salah. Contoh: `/laporan jadwal "0 8 * * 3"`');
                     }
                     const newSchedule = parts.slice(1).join(' ');
                     this.weeklyReport.enable(chatId, newSchedule);
-                    this.bot.sendMessage(chatId, `✅ Jadwal laporan diubah ke: ${this.escapeMarkdown(newSchedule)}`);
+                    this.bot.sendMessage(chatId, `✅ Jadwal laporan diubah ke: \`${this.escapeMarkdown(newSchedule)}\``, { parse_mode: 'Markdown' });
                     break;
 
                 case 'format':
-                    if (parts.length < 2) {
-                        this.bot.sendMessage(chatId, '❌ Format tidak valid. Pilihan: text, excel, csv, image\nContoh: `/laporan format excel`');
-                        return;
+                     if (parts.length < 2) {
+                        return this.bot.sendMessage(chatId, 'Format salah. Pilihan: text, excel, csv, image');
                     }
                     const newFormat = parts[1].toLowerCase();
                     const formatSet = this.weeklyReport.setReportFormat(newFormat);
                     if (formatSet) {
                         this.bot.sendMessage(chatId, `✅ Format laporan diubah ke: *${newFormat.toUpperCase()}*`, { parse_mode: 'Markdown' });
                     } else {
-                        this.bot.sendMessage(chatId, '❌ Format tidak valid. Pilihan: text, excel, csv, image');
+                        this.bot.sendMessage(chatId, '❌ Format tidak valid.');
                     }
                     break;
 
                 default:
-                    this.bot.sendMessage(chatId, '❌ Command tidak dikenali. Ketik `/laporan` untuk melihat menu.');
+                    this.bot.sendMessage(chatId, '❌ Perintah tidak dikenali. Ketik `/laporan` untuk melihat menu.');
             }
         } catch (error) {
             console.error('Laporan command error:', error);
-            this.bot.sendMessage(chatId, '❌ Terjadi kesalahan saat memproses command laporan');
+            this.bot.sendMessage(chatId, '❌ Terjadi kesalahan saat memproses perintah laporan.');
         }
     }
 
