@@ -1,0 +1,311 @@
+<%- include('partials/header') %>
+
+<div class="container-fluid" style="margin-top: 56px;">
+    <div class="row">
+        <%- include('partials/sidebar') %>
+        
+        <div class="col-lg-10">
+            <div class="main-content">
+                <!-- Flash Messages -->
+                <% if (flash) { %>
+                    <div class="alert alert-<%= flash.type %> alert-dismissible fade show" role="alert">
+                        <%= flash.message %>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                <% } %>
+                
+                <!-- Page Header -->
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <div>
+                        <h1 class="h3 mb-0">Transaksi</h1>
+                        <p class="text-muted">Kelola semua transaksi kas kelas</p>
+                    </div>
+                    <div>
+                        <a href="/transactions/create" class="btn btn-primary">
+                            <i class="bi bi-plus-circle"></i>
+                            Tambah Transaksi
+                        </a>
+                    </div>
+                </div>
+                
+                <!-- Filters -->
+                <div class="card mb-4">
+                    <div class="card-body">
+                        <form method="GET" class="row g-3">
+                            <div class="col-md-4">
+                                <label class="form-label">Cari Transaksi</label>
+                                <input type="text" class="form-control" name="search" value="<%= filters.search %>" placeholder="Cari deskripsi atau nama siswa...">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">Jenis Transaksi</label>
+                                <select class="form-select" name="type">
+                                    <option value="">Semua Jenis</option>
+                                    <option value="income" <%= filters.type === 'income' ? 'selected' : '' %>>Pemasukan</option>
+                                    <option value="expense" <%= filters.type === 'expense' ? 'selected' : '' %>>Pengeluaran</option>
+                                    <option value="iuran" <%= filters.type === 'iuran' ? 'selected' : '' %>>Iuran</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">&nbsp;</label>
+                                <div class="d-flex gap-2">
+                                    <button type="submit" class="btn btn-primary">
+                                        <i class="bi bi-search"></i>
+                                        Cari
+                                    </button>
+                                    <a href="/transactions" class="btn btn-outline-secondary">
+                                        <i class="bi bi-arrow-clockwise"></i>
+                                        Reset
+                                    </a>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+                
+                <!-- AI Command Panel -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="bi bi-robot"></i>
+                            AI Command Center
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-8">
+                                <div class="input-group">
+                                    <input type="text" class="form-control" id="aiCommandInput" placeholder="Contoh: kas 5000 andi, beli spidol 15000, terima sumbangan 50000">
+                                    <button class="btn btn-primary" type="button" onclick="processAICommand()">
+                                        <i class="bi bi-send"></i>
+                                        Proses AI
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="text-muted small">
+                                    <strong>Tips:</strong> Gunakan bahasa natural seperti "kas 3000 muzaki" atau "beli pulpen 15000"
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Transactions Table -->
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="bi bi-list-ul"></i>
+                            Daftar Transaksi
+                        </h5>
+                    </div>
+                    <div class="card-body p-0">
+                        <% if (transactions.length > 0) { %>
+                            <div class="table-responsive">
+                                <table class="table table-hover mb-0">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>Tanggal</th>
+                                            <th>Jenis</th>
+                                            <th>Jumlah</th>
+                                            <th>Deskripsi</th>
+                                            <th>Siswa</th>
+                                            <th>Dibuat Oleh</th>
+                                            <th>Aksi</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <% transactions.forEach(transaction => { %>
+                                            <tr>
+                                                <td>
+                                                    <small class="text-muted">
+                                                        <%= new Date(transaction.created_at).toLocaleDateString('id-ID') %>
+                                                        <br>
+                                                        <%= new Date(transaction.created_at).toLocaleTimeString('id-ID') %>
+                                                    </small>
+                                                </td>
+                                                <td>
+                                                    <% if (transaction.type === 'income') { %>
+                                                        <span class="badge bg-success">
+                                                            <i class="bi bi-arrow-up-circle"></i>
+                                                            Pemasukan
+                                                        </span>
+                                                    <% } else if (transaction.type === 'expense') { %>
+                                                        <span class="badge bg-danger">
+                                                            <i class="bi bi-arrow-down-circle"></i>
+                                                            Pengeluaran
+                                                        </span>
+                                                    <% } else { %>
+                                                        <span class="badge bg-primary">
+                                                            <i class="bi bi-wallet2"></i>
+                                                            Iuran
+                                                        </span>
+                                                    <% } %>
+                                                </td>
+                                                <td>
+                                                    <strong class="<%= transaction.type === 'expense' ? 'text-danger' : 'text-success' %>">
+                                                        Rp <%= transaction.amount.toLocaleString('id-ID') %>
+                                                    </strong>
+                                                </td>
+                                                <td><%= transaction.description %></td>
+                                                <td>
+                                                    <% if (transaction.student_name) { %>
+                                                        <span class="badge bg-info"><%= transaction.student_name %></span>
+                                                    <% } else { %>
+                                                        <span class="text-muted">-</span>
+                                                    <% } %>
+                                                </td>
+                                                <td>
+                                                    <small class="text-muted"><%= transaction.created_by %></small>
+                                                </td>
+                                                <td>
+                                                    <div class="btn-group btn-group-sm">
+                                                        <a href="/transactions/<%= transaction.id %>/edit" class="btn btn-outline-primary">
+                                                            <i class="bi bi-pencil"></i>
+                                                        </a>
+                                                        <button class="btn btn-outline-danger" 
+                                                                onclick="deleteTransaction(<%= transaction.id %>)"
+                                                                data-confirm-delete="Yakin ingin menghapus transaksi ini?">
+                                                            <i class="bi bi-trash"></i>
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        <% }) %>
+                                    </tbody>
+                                </table>
+                            </div>
+                            
+                            <!-- Pagination -->
+                            <% if (pagination.total > 1) { %>
+                                <div class="card-footer">
+                                    <nav>
+                                        <ul class="pagination justify-content-center mb-0">
+                                            <% if (pagination.hasPrev) { %>
+                                                <li class="page-item">
+                                                    <a class="page-link" href="?page=<%= pagination.current - 1 %>&search=<%= filters.search %>&type=<%= filters.type %>">
+                                                        <i class="bi bi-chevron-left"></i>
+                                                    </a>
+                                                </li>
+                                            <% } %>
+                                            
+                                            <% for (let i = Math.max(1, pagination.current - 2); i <= Math.min(pagination.total, pagination.current + 2); i++) { %>
+                                                <li class="page-item <%= i === pagination.current ? 'active' : '' %>">
+                                                    <a class="page-link" href="?page=<%= i %>&search=<%= filters.search %>&type=<%= filters.type %>">
+                                                        <%= i %>
+                                                    </a>
+                                                </li>
+                                            <% } %>
+                                            
+                                            <% if (pagination.hasNext) { %>
+                                                <li class="page-item">
+                                                    <a class="page-link" href="?page=<%= pagination.current + 1 %>&search=<%= filters.search %>&type=<%= filters.type %>">
+                                                        <i class="bi bi-chevron-right"></i>
+                                                    </a>
+                                                </li>
+                                            <% } %>
+                                        </ul>
+                                    </nav>
+                                </div>
+                            <% } %>
+                        <% } else { %>
+                            <div class="text-center py-5">
+                                <i class="bi bi-inbox fs-1 text-muted"></i>
+                                <h5 class="text-muted mt-3">Tidak ada transaksi</h5>
+                                <p class="text-muted">Belum ada transaksi yang sesuai dengan filter Anda</p>
+                                <a href="/transactions/create" class="btn btn-primary">
+                                    <i class="bi bi-plus-circle"></i>
+                                    Tambah Transaksi Pertama
+                                </a>
+                            </div>
+                        <% } %>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<% 
+const pageScript = `
+<script>
+async function deleteTransaction(id) {
+    if (!confirm('Yakin ingin menghapus transaksi ini?')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch('/transactions/' + id, {
+            method: 'DELETE',
+            headers: {
+                'Accept': 'application/json'
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showAlert('Transaksi berhasil dihapus', 'success');
+            setTimeout(() => location.reload(), 1000);
+        } else {
+            showAlert('Gagal menghapus transaksi: ' + data.message, 'danger');
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        showAlert('Terjadi kesalahan saat menghapus transaksi', 'danger');
+    }
+}
+
+async function processAICommand() {
+    const input = document.getElementById('aiCommandInput');
+    const command = input.value.trim();
+    
+    if (!command) {
+        showAlert('Silakan masukkan perintah', 'warning');
+        return;
+    }
+    
+    try {
+        input.disabled = true;
+        showAlert('Memproses dengan AI...', 'info');
+        
+        const response = await fetch('/api/ai-command', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ command })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            if (data.suggestion) {
+                showAlert('AI membutuhkan konfirmasi. Periksa interpretasi AI dan konfirmasi jika benar.', 'warning');
+                // Show suggestion modal or form
+            } else {
+                showAlert('Transaksi berhasil diproses dengan AI!', 'success');
+                input.value = '';
+                setTimeout(() => location.reload(), 1000);
+            }
+        } else {
+            showAlert('AI gagal memproses perintah: ' + data.message, 'danger');
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        showAlert('Terjadi kesalahan saat memproses dengan AI', 'danger');
+    } finally {
+        input.disabled = false;
+    }
+}
+
+// Enter key handler for AI command
+document.getElementById('aiCommandInput').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') {
+        processAICommand();
+    }
+});
+</script>
+`;
+%>
+
+<%- include('partials/footer', { pageScript }) %>

@@ -1,0 +1,512 @@
+<%- include('partials/header') %>
+
+<div class="container-fluid" style="margin-top: 56px;">
+    <div class="row">
+        <%- include('partials/sidebar') %>
+        
+        <div class="col-lg-10">
+            <div class="main-content">
+                <!-- Page Header -->
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <div>
+                        <h1 class="h3 mb-0">Laporan</h1>
+                        <p class="text-muted">Analisis dan laporan kas kelas</p>
+                    </div>
+                    <div>
+                        <button class="btn btn-success" onclick="exportData()">
+                            <i class="bi bi-download"></i>
+                            Export Data
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Report Filters -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="bi bi-funnel"></i>
+                            Filter Laporan
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <form id="reportFilters" class="row g-3">
+                            <div class="col-md-3">
+                                <label class="form-label">Periode</label>
+                                <select class="form-select" name="period" onchange="updateReport()">
+                                    <option value="weekly">Mingguan</option>
+                                    <option value="monthly" selected>Bulanan</option>
+                                    <option value="yearly">Tahunan</option>
+                                    <option value="custom">Custom</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">Bulan</label>
+                                <select class="form-select" name="month" onchange="updateReport()">
+                                    <% for (let i = 1; i <= 12; i++) { %>
+                                        <option value="<%= i %>" <%= new Date().getMonth() + 1 === i ? 'selected' : '' %>>
+                                            <%= new Date(2024, i-1, 1).toLocaleDateString('id-ID', { month: 'long' }) %>
+                                        </option>
+                                    <% } %>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">Tahun</label>
+                                <select class="form-select" name="year" onchange="updateReport()">
+                                    <% for (let i = 2024; i <= new Date().getFullYear() + 1; i++) { %>
+                                        <option value="<%= i %>" <%= new Date().getFullYear() === i ? 'selected' : '' %>><%= i %></option>
+                                    <% } %>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">Jenis</label>
+                                <select class="form-select" name="type" onchange="updateReport()">
+                                    <option value="">Semua</option>
+                                    <option value="income">Pemasukan</option>
+                                    <option value="expense">Pengeluaran</option>
+                                    <option value="iuran">Iuran</option>
+                                </select>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+                
+                <!-- Summary Cards -->
+                <div class="row mb-4" id="summaryCards">
+                    <div class="col-md-3">
+                        <div class="card stats-card bg-primary">
+                            <div class="card-body text-center">
+                                <i class="bi bi-receipt fs-1 mb-2"></i>
+                                <h3 id="totalTransactions">-</h3>
+                                <p class="mb-0">Total Transaksi</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-3">
+                        <div class="card stats-card bg-success">
+                            <div class="card-body text-center">
+                                <i class="bi bi-arrow-up-circle fs-1 mb-2"></i>
+                                <h3 id="totalIncome">-</h3>
+                                <p class="mb-0">Total Pemasukan</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-3">
+                        <div class="card stats-card bg-danger">
+                            <div class="card-body text-center">
+                                <i class="bi bi-arrow-down-circle fs-1 mb-2"></i>
+                                <h3 id="totalExpense">-</h3>
+                                <p class="mb-0">Total Pengeluaran</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-3">
+                        <div class="card stats-card bg-info">
+                            <div class="card-body text-center">
+                                <i class="bi bi-wallet2 fs-1 mb-2"></i>
+                                <h3 id="netBalance">-</h3>
+                                <p class="mb-0">Saldo Bersih</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Charts -->
+                <div class="row mb-4">
+                    <div class="col-md-8">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="mb-0">
+                                    <i class="bi bi-bar-chart"></i>
+                                    Grafik Transaksi
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <canvas id="transactionChart" height="100"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-4">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="mb-0">
+                                    <i class="bi bi-pie-chart"></i>
+                                    Distribusi Transaksi
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <canvas id="pieChart" height="150"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Top Students -->
+                <div class="row mb-4">
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="mb-0">
+                                    <i class="bi bi-trophy"></i>
+                                    Top Pembayar Iuran
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <div id="topStudents">
+                                    <div class="text-center py-3">
+                                        <div class="spinner-border text-primary" role="status">
+                                            <span class="visually-hidden">Loading...</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="mb-0">
+                                    <i class="bi bi-calendar-week"></i>
+                                    Status Iuran Mingguan
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <div id="weeklyStatus">
+                                    <div class="text-center py-3">
+                                        <div class="spinner-border text-primary" role="status">
+                                            <span class="visually-hidden">Loading...</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Recent Transactions Table -->
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="bi bi-list-ul"></i>
+                            Transaksi Terbaru
+                        </h5>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0" id="recentTransactionsTable">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>Tanggal</th>
+                                        <th>Jenis</th>
+                                        <th>Jumlah</th>
+                                        <th>Deskripsi</th>
+                                        <th>Siswa</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td colspan="5" class="text-center py-3">
+                                            <div class="spinner-border text-primary" role="status">
+                                                <span class="visually-hidden">Loading...</span>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<% 
+const pageScript = `
+<script>
+let transactionChart, pieChart;
+
+// Initialize charts
+document.addEventListener('DOMContentLoaded', function() {
+    initializeCharts();
+    updateReport();
+});
+
+function initializeCharts() {
+    // Transaction Chart
+    const ctx1 = document.getElementById('transactionChart').getContext('2d');
+    transactionChart = new Chart(ctx1, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [{
+                label: 'Pemasukan',
+                data: [],
+                borderColor: 'rgb(25, 135, 84)',
+                backgroundColor: 'rgba(25, 135, 84, 0.1)',
+                tension: 0.4
+            }, {
+                label: 'Pengeluaran',
+                data: [],
+                borderColor: 'rgb(220, 53, 69)',
+                backgroundColor: 'rgba(220, 53, 69, 0.1)',
+                tension: 0.4
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        callback: function(value) {
+                            return 'Rp ' + value.toLocaleString('id-ID');
+                        }
+                    }
+                }
+            },
+            plugins: {
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return context.dataset.label + ': Rp ' + context.parsed.y.toLocaleString('id-ID');
+                        }
+                    }
+                }
+            }
+        }
+    });
+    
+    // Pie Chart
+    const ctx2 = document.getElementById('pieChart').getContext('2d');
+    pieChart = new Chart(ctx2, {
+        type: 'doughnut',
+        data: {
+            labels: ['Pemasukan', 'Pengeluaran', 'Iuran'],
+            datasets: [{
+                data: [0, 0, 0],
+                backgroundColor: [
+                    'rgb(25, 135, 84)',
+                    'rgb(220, 53, 69)',
+                    'rgb(13, 110, 253)'
+                ]
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return context.label + ': Rp ' + context.parsed.toLocaleString('id-ID');
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+async function updateReport() {
+    try {
+        // Show loading
+        showLoading();
+        
+        // Get filter values
+        const form = document.getElementById('reportFilters');
+        const formData = new FormData(form);
+        const params = new URLSearchParams(formData);
+        
+        // Fetch report data
+        const response = await fetch('/api/reports?' + params);
+        const data = await response.json();
+        
+        if (data.success) {
+            updateSummaryCards(data.summary);
+            updateCharts(data.chartData);
+            updateTopStudents(data.topStudents);
+            updateWeeklyStatus(data.weeklyStatus);
+            updateRecentTransactions(data.recentTransactions);
+        } else {
+            showAlert('Gagal memuat laporan: ' + data.message, 'danger');
+        }
+    } catch (error) {
+        console.error('Error updating report:', error);
+        showAlert('Terjadi kesalahan saat memuat laporan', 'danger');
+    }
+}
+
+function showLoading() {
+    document.getElementById('totalTransactions').textContent = '-';
+    document.getElementById('totalIncome').textContent = '-';
+    document.getElementById('totalExpense').textContent = '-';
+    document.getElementById('netBalance').textContent = '-';
+}
+
+function updateSummaryCards(summary) {
+    document.getElementById('totalTransactions').textContent = summary.totalTransactions || 0;
+    document.getElementById('totalIncome').textContent = 'Rp ' + (summary.totalIncome || 0).toLocaleString('id-ID');
+    document.getElementById('totalExpense').textContent = 'Rp ' + (summary.totalExpense || 0).toLocaleString('id-ID');
+    document.getElementById('netBalance').textContent = 'Rp ' + (summary.netBalance || 0).toLocaleString('id-ID');
+}
+
+function updateCharts(chartData) {
+    // Update line chart
+    transactionChart.data.labels = chartData.labels || [];
+    transactionChart.data.datasets[0].data = chartData.income || [];
+    transactionChart.data.datasets[1].data = chartData.expense || [];
+    transactionChart.update();
+    
+    // Update pie chart
+    pieChart.data.datasets[0].data = [
+        chartData.totalIncome || 0,
+        chartData.totalExpense || 0,
+        chartData.totalIuran || 0
+    ];
+    pieChart.update();
+}
+
+function updateTopStudents(topStudents) {
+    const container = document.getElementById('topStudents');
+    
+    if (!topStudents || topStudents.length === 0) {
+        container.innerHTML = '<p class="text-muted text-center">Belum ada data pembayaran iuran</p>';
+        return;
+    }
+    
+    let html = '';
+    topStudents.forEach((student, index) => {
+        const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : (index + 1);
+        html += \`
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <div>
+                    <span class="me-2">\${medal}</span>
+                    <strong>\${student.name}</strong>
+                </div>
+                <span class="badge bg-success">Rp \${student.total_paid.toLocaleString('id-ID')}</span>
+            </div>
+        \`;
+    });
+    
+    container.innerHTML = html;
+}
+
+function updateWeeklyStatus(weeklyStatus) {
+    const container = document.getElementById('weeklyStatus');
+    
+    if (!weeklyStatus) {
+        container.innerHTML = '<p class="text-muted text-center">Gagal memuat status mingguan</p>';
+        return;
+    }
+    
+    const percentage = weeklyStatus.total > 0 ? Math.round((weeklyStatus.paid / weeklyStatus.total) * 100) : 0;
+    
+    const html = \`
+        <div class="text-center mb-3">
+            <h4 class="text-primary">\${weeklyStatus.paid}/\${weeklyStatus.total}</h4>
+            <small class="text-muted">Siswa sudah bayar</small>
+        </div>
+        <div class="progress mb-2" style="height: 10px;">
+            <div class="progress-bar" style="width: \${percentage}%"></div>
+        </div>
+        <div class="text-center">
+            <small class="text-muted">\${percentage}% selesai</small>
+        </div>
+        <hr>
+        <div class="row text-center">
+            <div class="col-6">
+                <h6 class="text-success">Rp \${weeklyStatus.collected.toLocaleString('id-ID')}</h6>
+                <small class="text-muted">Terkumpul</small>
+            </div>
+            <div class="col-6">
+                <h6 class="text-warning">Rp \${weeklyStatus.remaining.toLocaleString('id-ID')}</h6>
+                <small class="text-muted">Tersisa</small>
+            </div>
+        </div>
+    \`;
+    
+    container.innerHTML = html;
+}
+
+function updateRecentTransactions(transactions) {
+    const tbody = document.querySelector('#recentTransactionsTable tbody');
+    
+    if (!transactions || transactions.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center py-3">Tidak ada transaksi</td></tr>';
+        return;
+    }
+    
+    let html = '';
+    transactions.forEach(transaction => {
+        const typeIcon = transaction.type === 'income' ? 'bi-arrow-up-circle text-success' :
+                        transaction.type === 'expense' ? 'bi-arrow-down-circle text-danger' :
+                        'bi-wallet2 text-primary';
+        
+        const typeBadge = transaction.type === 'income' ? 'bg-success' :
+                         transaction.type === 'expense' ? 'bg-danger' : 'bg-primary';
+        
+        html += \`
+            <tr>
+                <td>
+                    <small>\${new Date(transaction.created_at).toLocaleDateString('id-ID')}</small>
+                </td>
+                <td>
+                    <span class="badge \${typeBadge}">
+                        <i class="bi \${typeIcon}"></i>
+                        \${transaction.type === 'income' ? 'Pemasukan' : 
+                          transaction.type === 'expense' ? 'Pengeluaran' : 'Iuran'}
+                    </span>
+                </td>
+                <td>
+                    <strong class="\${transaction.type === 'expense' ? 'text-danger' : 'text-success'}">
+                        Rp \${transaction.amount.toLocaleString('id-ID')}
+                    </strong>
+                </td>
+                <td>\${transaction.description}</td>
+                <td>
+                    \${transaction.student_name ? 
+                      '<span class="badge bg-info">' + transaction.student_name + '</span>' : 
+                      '<span class="text-muted">-</span>'}
+                </td>
+            </tr>
+        \`;
+    });
+    
+    tbody.innerHTML = html;
+}
+
+async function exportData() {
+    try {
+        const form = document.getElementById('reportFilters');
+        const formData = new FormData(form);
+        const params = new URLSearchParams(formData);
+        
+        const response = await fetch('/api/export?' + params);
+        const blob = await response.blob();
+        
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'laporan-kas-' + new Date().toISOString().split('T')[0] + '.csv';
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        
+        showAlert('Data berhasil diexport', 'success');
+    } catch (error) {
+        console.error('Error exporting data:', error);
+        showAlert('Gagal export data', 'danger');
+    }
+}
+</script>
+`;
+%>
+
+<%- include('partials/footer', { pageScript }) %>

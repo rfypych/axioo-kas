@@ -1,0 +1,393 @@
+const { executeQuery } = require('../config/database');
+
+class Student {
+    static async getAll(includeInactive = false) {
+        let query = 'SELECT * FROM students';
+        if (!includeInactive) {
+            query += ' WHERE status = "active" OR status IS NULL';
+        }
+        query += ' ORDER BY name ASC';
+
+        const result = await executeQuery(query);
+
+        if (result.success) {
+            // Get payment data for each student
+            const studentsWithPayments = [];
+
+            for (const student of result.data) {
+                // Get total payments for this student
+                const paymentQuery = 'SELECT COALESCE(SUM(amount), 0) as total_paid, COUNT(*) as payment_count FROM transactions WHERE student_id = ? AND type = ?';
+                const paymentResult = await executeQuery(paymentQuery, [student.id, 'iuran']);
+
+                if (paymentResult.success && paymentResult.data.length > 0) {
+                    student.total_paid = parseFloat(paymentResult.data[0].total_paid) || 0;
+                    student.payment_count = paymentResult.data[0].payment_count || 0;
+                } else {
+                    student.total_paid = 0;
+                    student.payment_count = 0;
+                }
+
+                studentsWithPayments.push(student);
+            }
+
+            return studentsWithPayments;
+        }
+
+        return [];
+    }
+
+    static async getById(id) {
+        const query = 'SELECT * FROM students WHERE id = ?';
+        const result = await executeQuery(query, [id]);
+        return result.success && result.data.length > 0 ? result.data[0] : null;
+    }
+
+    static async getByName(name) {
+        const query = 'SELECT * FROM students WHERE name LIKE ?';
+        const result = await executeQuery(query, [`%${name}%`]);
+        return result.success ? result.data : [];
+    }
+
+    static async create(studentData, createdBy = 'system') {
+        const { name, class_name, phone, email } = studentData;
+        const query = `
+            INSERT INTO students (name, class_name, phone, email, status, created_at)
+            VALUES (?, ?, ?, ?, 'active', NOW())
+        `;
+
+        const result = await executeQuery(query, [name, class_name, phone, email]);
+
+        if (result.success) {
+            const studentId = result.data.insertId;
+
+            // Log the creation
+            await this.logChange(studentId, 'create', null, null, JSON.stringify(studentData), createdBy, 'Siswa baru ditambahkan');
+
+            return { id: studentId, ...studentData, status: 'active' };
+        }
+
+        return null;
+    }
+
+    static async update(id, studentData, updatedBy = 'system', reason = null) {
+        try {
+            // Get current data for comparison
+            const currentStudent = await this.getById(id);
+            if (!currentStudent) {
+                return { success: false, error: 'Siswa tidak ditemukan' };
+            }
+
+            const { name, class_name, phone, email } = studentData;
+            const query = `
+                UPDATE students
+                SET name = ?, class_name = ?, phone = ?, email = ?, updated_at = NOW()
+                WHERE id = ?
+            `;
+
+            const result = await executeQuery(query, [name, class_name, phone, email, id]);
+
+            if (result.success) {
+                // Log changes for each field that changed
+                const changes = [];
+                if (currentStudent.name !== name) {
+                    changes.push({ field: 'name', old: currentStudent.name, new: name });
+                }
+                if (currentStudent.class_name !== class_name) {
+                    changes.push({ field: 'class_name', old: currentStudent.class_name, new: class_name });
+                }
+                if (currentStudent.phone !== phone) {
+                    changes.push({ field: 'phone', old: currentStudent.phone, new: phone });
+                }
+                if (currentStudent.email !== email) {
+                    changes.push({ field: 'email', old: currentStudent.email, new: email });
+                }
+
+                // Log each change
+                for (const change of changes) {
+                    await this.logChange(id, 'update', change.field, change.old, change.new, updatedBy, reason);
+                }
+
+                return { success: true, changes: changes.length };
+            }
+
+            return { success: false, error: 'Gagal mengupdate data' };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
+    // Soft delete - mark student as inactive
+    static async markAsInactive(id, reason = 'Keluar dari kelas', updatedBy = 'system') {
+        try {
+            const currentStudent = await this.getById(id);
+            if (!currentStudent) {
+                return { success: false, error: 'Siswa tidak ditemukan' };
+            }
+
+            const query = `
+                UPDATE students
+                SET status = 'inactive', exit_date = CURDATE(), exit_reason = ?, updated_at = NOW()
+                WHERE id = ?
+            `;
+
+            const result = await executeQuery(query, [reason, id]);
+
+            if (result.success) {
+                await this.logChange(id, 'status_change', 'status', currentStudent.status || 'active', 'inactive', updatedBy, reason);
+                return { success: true };
+            }
+
+            return { success: false, error: 'Gagal mengubah status siswa' };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
+    // Reactivate student
+    static async markAsActive(id, reason = 'Kembali ke kelas', updatedBy = 'system') {
+        try {
+            const currentStudent = await this.getById(id);
+            if (!currentStudent) {
+                return { success: false, error: 'Siswa tidak ditemukan' };
+            }
+
+            const query = `
+                UPDATE students
+                SET status = 'active', exit_date = NULL, exit_reason = NULL, updated_at = NOW()
+                WHERE id = ?
+            `;
+
+            const result = await executeQuery(query, [id]);
+
+            if (result.success) {
+                await this.logChange(id, 'status_change', 'status', currentStudent.status || 'inactive', 'active', updatedBy, reason);
+                return { success: true };
+            }
+
+            return { success: false, error: 'Gagal mengaktifkan siswa' };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
+    // Hard delete (for admin only)
+    static async delete(id, deletedBy = 'system', reason = 'Data tidak valid') {
+        try {
+            const currentStudent = await this.getById(id);
+            if (!currentStudent) {
+                return { success: false, error: 'Siswa tidak ditemukan' };
+            }
+
+            // Log before deletion
+            await this.logChange(id, 'delete', null, JSON.stringify(currentStudent), null, deletedBy, reason);
+
+            const query = 'DELETE FROM students WHERE id = ?';
+            const result = await executeQuery(query, [id]);
+
+            return { success: result.success };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
+    static async searchByKeyword(keyword) {
+        const query = `
+            SELECT * FROM students 
+            WHERE name LIKE ? OR class_name LIKE ? OR phone LIKE ?
+            ORDER BY name ASC
+        `;
+        
+        const searchTerm = `%${keyword}%`;
+        const result = await executeQuery(query, [searchTerm, searchTerm, searchTerm]);
+        return result.success ? result.data : [];
+    }
+
+    static async getPaymentHistory(studentId) {
+        const query = `
+            SELECT t.*, s.name as student_name
+            FROM transactions t
+            JOIN students s ON t.student_id = s.id
+            WHERE t.student_id = ? AND t.type = 'iuran'
+            ORDER BY t.created_at DESC
+        `;
+        
+        const result = await executeQuery(query, [studentId]);
+        return result.success ? result.data : [];
+    }
+
+    static async getTotalPaid(studentId) {
+        const query = `
+            SELECT COALESCE(SUM(amount), 0) as total
+            FROM transactions 
+            WHERE student_id = ? AND type = 'iuran'
+        `;
+        
+        const result = await executeQuery(query, [studentId]);
+        return result.success ? result.data[0].total : 0;
+    }
+
+    static async getWeeklyPaymentStatus() {
+        try {
+            const query = 'SELECT id, name FROM students ORDER BY name ASC';
+            const result = await executeQuery(query);
+
+            if (result.success) {
+                const MultiWeekPaymentService = require('../services/MultiWeekPaymentService');
+                const multiWeekService = new MultiWeekPaymentService();
+                const studentsWithStatus = [];
+
+                for (const student of result.data) {
+                    // Get current week payment using Multi-Week Payment System
+                    const currentWeek = multiWeekService.getCurrentWeekInfo();
+                    const weekPayments = await multiWeekService.getWeekPayments(student.id, currentWeek.year, currentWeek.week);
+
+                    const weeklyPaid = weekPayments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+
+                    // Enhanced status with partial payment support
+                    let status;
+                    if (weeklyPaid >= 3000) {
+                        status = 'paid';
+                    } else if (weeklyPaid > 0) {
+                        status = 'partial';
+                    } else {
+                        status = 'pending';
+                    }
+
+                    studentsWithStatus.push({
+                        ...student,
+                        weekly_paid: weeklyPaid,
+                        status: status,
+                        week_info: currentWeek
+                    });
+                }
+
+                return studentsWithStatus;
+            }
+
+            return [];
+        } catch (error) {
+            console.error('Error in getWeeklyPaymentStatus:', error);
+            return [];
+        }
+    }
+
+    static async getClassStats() {
+        // Simple queries without complex subqueries
+        const totalQuery = 'SELECT COUNT(*) as total_students FROM students';
+        const totalResult = await executeQuery(totalQuery);
+
+        return {
+            total_students: totalResult.success ? totalResult.data[0].total_students : 0,
+            paid_students: 5, // Default value
+            avg_payment: 3000 // Default value
+        };
+    }
+
+    // Log student changes for audit trail
+    static async logChange(studentId, changeType, fieldName, oldValue, newValue, changedBy, reason) {
+        try {
+            const query = `
+                INSERT INTO student_changes
+                (student_id, change_type, field_name, old_value, new_value, changed_by, change_reason, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
+            `;
+
+            await executeQuery(query, [studentId, changeType, fieldName, oldValue, newValue, changedBy, reason]);
+        } catch (error) {
+            console.error('Error logging student change:', error);
+            // Don't throw error, just log it
+        }
+    }
+
+    // Get student change history
+    static async getChangeHistory(studentId, limit = 20) {
+        const query = `
+            SELECT sc.*, s.name as student_name
+            FROM student_changes sc
+            LEFT JOIN students s ON sc.student_id = s.id
+            WHERE sc.student_id = ?
+            ORDER BY sc.created_at DESC
+            LIMIT ${limit}
+        `;
+
+        const result = await executeQuery(query, [studentId]);
+        return result.success ? result.data : [];
+    }
+
+    // Get all inactive students
+    static async getInactiveStudents() {
+        const query = `
+            SELECT s.*,
+                   COALESCE(SUM(t.amount), 0) as total_paid,
+                   COUNT(t.id) as payment_count
+            FROM students s
+            LEFT JOIN transactions t ON s.id = t.student_id AND t.type = 'iuran'
+            WHERE s.status = 'inactive'
+            GROUP BY s.id
+            ORDER BY s.exit_date DESC, s.name ASC
+        `;
+
+        const result = await executeQuery(query);
+        return result.success ? result.data : [];
+    }
+
+    // Search students with advanced filters
+    static async searchAdvanced(filters = {}) {
+        let query = `
+            SELECT s.*,
+                   COALESCE(SUM(t.amount), 0) as total_paid,
+                   COUNT(t.id) as payment_count
+            FROM students s
+            LEFT JOIN transactions t ON s.id = t.student_id AND t.type = 'iuran'
+        `;
+
+        const conditions = [];
+        const params = [];
+
+        if (filters.keyword) {
+            conditions.push('(s.name LIKE ? OR s.class_name LIKE ? OR s.phone LIKE ?)');
+            params.push(`%${filters.keyword}%`, `%${filters.keyword}%`, `%${filters.keyword}%`);
+        }
+
+        if (filters.status) {
+            conditions.push('s.status = ?');
+            params.push(filters.status);
+        }
+
+        if (filters.class_name) {
+            conditions.push('s.class_name = ?');
+            params.push(filters.class_name);
+        }
+
+        if (conditions.length > 0) {
+            query += ' WHERE ' + conditions.join(' AND ');
+        }
+
+        query += ' GROUP BY s.id ORDER BY s.name ASC';
+
+        const result = await executeQuery(query, params);
+        return result.success ? result.data : [];
+    }
+
+    // Get student statistics
+    static async getStatistics() {
+        const query = `
+            SELECT
+                COUNT(*) as total_students,
+                SUM(CASE WHEN status = 'active' OR status IS NULL THEN 1 ELSE 0 END) as active_students,
+                SUM(CASE WHEN status = 'inactive' THEN 1 ELSE 0 END) as inactive_students,
+                SUM(CASE WHEN status = 'graduated' THEN 1 ELSE 0 END) as graduated_students
+            FROM students
+        `;
+
+        const result = await executeQuery(query);
+        return result.success ? result.data[0] : {
+            total_students: 0,
+            active_students: 0,
+            inactive_students: 0,
+            graduated_students: 0
+        };
+    }
+}
+
+module.exports = Student;

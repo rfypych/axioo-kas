@@ -1,0 +1,401 @@
+<%- include('partials/header') %>
+
+<div class="container-fluid" style="margin-top: 56px;">
+    <div class="row">
+        <%- include('partials/sidebar') %>
+        
+        <div class="col-lg-10">
+            <div class="main-content">
+                <!-- Flash Messages -->
+                <% if (flash) { %>
+                    <div class="alert alert-<%= flash.type %> alert-dismissible fade show" role="alert">
+                        <%= flash.message %>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                <% } %>
+                
+                <!-- Page Header -->
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <div>
+                        <h1 class="h3 mb-0">Dashboard</h1>
+                        <p class="text-muted">Selamat datang di Axioo Kas - Sistem Manajemen Kas Kelas</p>
+                    </div>
+                    <div>
+                        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#quickActionModal">
+                            <i class="bi bi-plus-circle"></i>
+                            Quick Action
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Statistics Cards -->
+                <div class="row mb-4">
+                    <div class="col-md-3 mb-3">
+                        <div class="card stats-card bg-primary">
+                            <div class="card-body text-center">
+                                <i class="bi bi-wallet2 fs-1 mb-2"></i>
+                                <h3 id="current-balance">Rp <%= data.balance.balance.toLocaleString('id-ID') %></h3>
+                                <p class="mb-0">Saldo Saat Ini</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-3 mb-3">
+                        <div class="card stats-card bg-success">
+                            <div class="card-body text-center">
+                                <i class="bi bi-arrow-up-circle fs-1 mb-2"></i>
+                                <h3 id="total-income">Rp <%= data.balance.income.toLocaleString('id-ID') %></h3>
+                                <p class="mb-0">Total Pemasukan</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-3 mb-3">
+                        <div class="card stats-card bg-danger">
+                            <div class="card-body text-center">
+                                <i class="bi bi-arrow-down-circle fs-1 mb-2"></i>
+                                <h3 id="total-expense">Rp <%= data.balance.expense.toLocaleString('id-ID') %></h3>
+                                <p class="mb-0">Total Pengeluaran</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-3 mb-3">
+                        <div class="card stats-card bg-info">
+                            <div class="card-body text-center">
+                                <i class="bi bi-people fs-1 mb-2"></i>
+                                <h3><%= data.classStats.total_students %></h3>
+                                <p class="mb-0">Total Siswa</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Weekly Collection Progress -->
+                <div class="row mb-4">
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="mb-0">
+                                    <i class="bi bi-calendar-week"></i>
+                                    Iuran Mingguan
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between align-items-center mb-3">
+                                    <span>Progress Pembayaran</span>
+                                    <span class="badge bg-primary"><%= data.weeklyProgress.paid %>/<%= data.weeklyProgress.total %> siswa</span>
+                                </div>
+                                <div class="progress mb-3" style="height: 10px;">
+                                    <div class="progress-bar" role="progressbar" style="width: <%= data.weeklyProgress.percentage %>%"></div>
+                                </div>
+                                <div class="row text-center">
+                                    <div class="col-6">
+                                        <h4 class="text-success">Rp <%= data.weeklyCollection.weekly_total.toLocaleString('id-ID') %></h4>
+                                        <small class="text-muted">Terkumpul</small>
+                                    </div>
+                                    <div class="col-6">
+                                        <h4 class="text-primary"><%= data.weeklyProgress.percentage %>%</h4>
+                                        <small class="text-muted">Selesai</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="mb-0">
+                                    <i class="bi bi-robot"></i>
+                                    AI Command Center
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <p class="text-muted mb-3">Gunakan AI untuk memproses perintah kas dengan bahasa natural</p>
+                                <div class="input-group">
+                                    <input type="text" class="form-control" id="aiCommand" placeholder="Contoh: kas 3000 muzaki">
+                                    <button class="btn btn-primary" type="button" onclick="processAICommand()">
+                                        <i class="bi bi-send"></i>
+                                    </button>
+                                </div>
+                                <small class="text-muted">
+                                    Contoh: "kas 5000 andi", "beli spidol 15000", "terima sumbangan 50000"
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Recent Transactions and Chart -->
+                <div class="row">
+                    <div class="col-md-8">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="mb-0">
+                                    <i class="bi bi-graph-up"></i>
+                                    Grafik Transaksi
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <canvas id="transactionChart" height="100"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-4">
+                        <div class="card">
+                            <div class="card-header d-flex justify-content-between align-items-center">
+                                <h5 class="mb-0">
+                                    <i class="bi bi-clock-history"></i>
+                                    Transaksi Terbaru
+                                </h5>
+                                <a href="/transactions" class="btn btn-sm btn-outline-light">Lihat Semua</a>
+                            </div>
+                            <div class="card-body p-0">
+                                <% if (data.recentTransactions.length > 0) { %>
+                                    <div class="list-group list-group-flush">
+                                        <% data.recentTransactions.forEach(transaction => { %>
+                                            <div class="list-group-item">
+                                                <div class="d-flex justify-content-between align-items-start">
+                                                    <div class="flex-grow-1">
+                                                        <h6 class="mb-1">
+                                                            <% if (transaction.type === 'income') { %>
+                                                                <i class="bi bi-arrow-up-circle text-success"></i>
+                                                            <% } else if (transaction.type === 'expense') { %>
+                                                                <i class="bi bi-arrow-down-circle text-danger"></i>
+                                                            <% } else { %>
+                                                                <i class="bi bi-wallet2 text-primary"></i>
+                                                            <% } %>
+                                                            Rp <%= transaction.amount.toLocaleString('id-ID') %>
+                                                        </h6>
+                                                        <p class="mb-1 small"><%= transaction.description %></p>
+                                                        <% if (transaction.student_name) { %>
+                                                            <small class="text-muted"><%= transaction.student_name %></small>
+                                                        <% } %>
+                                                    </div>
+                                                    <small class="text-muted">
+                                                        <%= new Date(transaction.created_at).toLocaleDateString('id-ID') %>
+                                                    </small>
+                                                </div>
+                                            </div>
+                                        <% }) %>
+                                    </div>
+                                <% } else { %>
+                                    <div class="text-center py-4">
+                                        <i class="bi bi-inbox fs-1 text-muted"></i>
+                                        <p class="text-muted">Belum ada transaksi</p>
+                                    </div>
+                                <% } %>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Quick Action Modal -->
+<div class="modal fade" id="quickActionModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Quick Action</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="quickActionForm">
+                    <div class="mb-3">
+                        <label class="form-label">Jenis Transaksi</label>
+                        <select class="form-select" name="action" required>
+                            <option value="">Pilih jenis transaksi</option>
+                            <option value="income">Pemasukan</option>
+                            <option value="expense">Pengeluaran</option>
+                            <option value="iuran">Iuran</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Jumlah</label>
+                        <input type="number" class="form-control" name="amount" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Deskripsi</label>
+                        <input type="text" class="form-control" name="description" required>
+                    </div>
+                    <div class="mb-3" id="studentSelectDiv" style="display: none;">
+                        <label class="form-label">Siswa</label>
+                        <select class="form-select" name="student_id">
+                            <option value="">Pilih siswa</option>
+                        </select>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Batal</button>
+                <button type="button" class="btn btn-primary" onclick="submitQuickAction()">Simpan</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<% 
+const pageScript = `
+<script>
+// Chart.js configuration
+const ctx = document.getElementById('transactionChart').getContext('2d');
+const chart = new Chart(ctx, {
+    type: 'line',
+    data: {
+        labels: ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'],
+        datasets: [{
+            label: 'Pemasukan',
+            data: [${data.monthlyData.income || 0}, 0, 0, 0, 0, 0, 0],
+            borderColor: 'rgb(25, 135, 84)',
+            backgroundColor: 'rgba(25, 135, 84, 0.1)',
+            tension: 0.4
+        }, {
+            label: 'Pengeluaran',
+            data: [${data.monthlyData.expense || 0}, 0, 0, 0, 0, 0, 0],
+            borderColor: 'rgb(220, 53, 69)',
+            backgroundColor: 'rgba(220, 53, 69, 0.1)',
+            tension: 0.4
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+            y: {
+                beginAtZero: true,
+                ticks: {
+                    callback: function(value) {
+                        return 'Rp ' + value.toLocaleString('id-ID');
+                    }
+                }
+            }
+        },
+        plugins: {
+            tooltip: {
+                callbacks: {
+                    label: function(context) {
+                        return context.dataset.label + ': Rp ' + context.parsed.y.toLocaleString('id-ID');
+                    }
+                }
+            }
+        }
+    }
+});
+
+// Quick Action form handling
+document.querySelector('select[name="action"]').addEventListener('change', function() {
+    const studentDiv = document.getElementById('studentSelectDiv');
+    if (this.value === 'iuran') {
+        studentDiv.style.display = 'block';
+        loadStudents();
+    } else {
+        studentDiv.style.display = 'none';
+    }
+});
+
+async function loadStudents() {
+    try {
+        const response = await fetch('/api/students');
+        const data = await response.json();
+        
+        const select = document.querySelector('select[name="student_id"]');
+        select.innerHTML = '<option value="">Pilih siswa</option>';
+        
+        data.data.forEach(student => {
+            const option = document.createElement('option');
+            option.value = student.id;
+            option.textContent = student.name;
+            select.appendChild(option);
+        });
+    } catch (error) {
+        console.error('Error loading students:', error);
+    }
+}
+
+async function submitQuickAction() {
+    const form = document.getElementById('quickActionForm');
+    const formData = new FormData(form);
+    
+    try {
+        const response = await fetch('/api/quick-action', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(Object.fromEntries(formData))
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showAlert('Transaksi berhasil ditambahkan', 'success');
+            bootstrap.Modal.getInstance(document.getElementById('quickActionModal')).hide();
+            form.reset();
+            setTimeout(() => location.reload(), 1000);
+        } else {
+            showAlert('Gagal menambahkan transaksi: ' + data.message, 'danger');
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        showAlert('Terjadi kesalahan saat menyimpan transaksi', 'danger');
+    }
+}
+
+async function processAICommand() {
+    const input = document.getElementById('aiCommand');
+    const command = input.value.trim();
+    
+    if (!command) {
+        showAlert('Silakan masukkan perintah', 'warning');
+        return;
+    }
+    
+    try {
+        input.disabled = true;
+        showAlert('Memproses dengan AI...', 'info');
+        
+        const response = await fetch('/api/ai-command', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ command })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            if (data.suggestion) {
+                showAlert('AI membutuhkan konfirmasi. Silakan cek halaman transaksi.', 'warning');
+            } else {
+                showAlert('Transaksi berhasil diproses dengan AI!', 'success');
+                input.value = '';
+                setTimeout(() => location.reload(), 1000);
+            }
+        } else {
+            showAlert('AI gagal memproses perintah: ' + data.message, 'danger');
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        showAlert('Terjadi kesalahan saat memproses dengan AI', 'danger');
+    } finally {
+        input.disabled = false;
+    }
+}
+
+// Enter key handler for AI command
+document.getElementById('aiCommand').addEventListener('keypress', function(e) {
+    if (e.key === 'Enter') {
+        processAICommand();
+    }
+});
+</script>
+`;
+%>
+
+<%- include('partials/footer', { pageScript }) %>

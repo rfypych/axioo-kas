@@ -1,0 +1,211 @@
+    <!-- Bootstrap 5 JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- Custom JavaScript -->
+    <script>
+        // Sidebar toggle for mobile
+        document.addEventListener('DOMContentLoaded', function() {
+            const sidebarToggle = document.getElementById('sidebarToggle');
+            const sidebar = document.getElementById('sidebar');
+            const sidebarOverlay = document.getElementById('sidebarOverlay');
+            
+            if (sidebarToggle && sidebar) {
+                sidebarToggle.addEventListener('click', function() {
+                    sidebar.classList.toggle('show');
+                    if (sidebarOverlay) {
+                        sidebarOverlay.style.display = sidebar.classList.contains('show') ? 'block' : 'none';
+                    }
+                });
+            }
+            
+            if (sidebarOverlay) {
+                sidebarOverlay.addEventListener('click', function() {
+                    sidebar.classList.remove('show');
+                    sidebarOverlay.style.display = 'none';
+                });
+            }
+            
+            // Auto-hide alerts after 5 seconds
+            const alerts = document.querySelectorAll('.alert');
+            alerts.forEach(alert => {
+                setTimeout(() => {
+                    const bsAlert = new bootstrap.Alert(alert);
+                    bsAlert.close();
+                }, 5000);
+            });
+            
+            // Format currency inputs
+            const currencyInputs = document.querySelectorAll('input[data-currency]');
+            currencyInputs.forEach(input => {
+                input.addEventListener('input', function() {
+                    let value = this.value.replace(/[^\d]/g, '');
+                    if (value) {
+                        this.value = parseInt(value).toLocaleString('id-ID');
+                    }
+                });
+                
+                input.addEventListener('blur', function() {
+                    let value = this.value.replace(/[^\d]/g, '');
+                    this.setAttribute('data-value', value);
+                });
+            });
+            
+            // Confirm delete actions
+            const deleteButtons = document.querySelectorAll('[data-confirm-delete]');
+            deleteButtons.forEach(button => {
+                button.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    const message = this.getAttribute('data-confirm-delete') || 'Apakah Anda yakin ingin menghapus item ini?';
+                    
+                    if (confirm(message)) {
+                        if (this.tagName === 'FORM') {
+                            this.submit();
+                        } else if (this.href) {
+                            window.location.href = this.href;
+                        } else {
+                            // Handle AJAX delete
+                            const url = this.getAttribute('data-url');
+                            if (url) {
+                                fetch(url, { method: 'DELETE' })
+                                    .then(response => response.json())
+                                    .then(data => {
+                                        if (data.success) {
+                                            location.reload();
+                                        } else {
+                                            alert('Gagal menghapus: ' + data.message);
+                                        }
+                                    })
+                                    .catch(error => {
+                                        console.error('Error:', error);
+                                        alert('Terjadi kesalahan saat menghapus');
+                                    });
+                            }
+                        }
+                    }
+                });
+            });
+            
+            // Loading states for buttons
+            const loadingButtons = document.querySelectorAll('[data-loading]');
+            loadingButtons.forEach(button => {
+                button.addEventListener('click', function() {
+                    const originalText = this.innerHTML;
+                    this.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Loading...';
+                    this.disabled = true;
+                    
+                    // Re-enable after 3 seconds (fallback)
+                    setTimeout(() => {
+                        this.innerHTML = originalText;
+                        this.disabled = false;
+                    }, 3000);
+                });
+            });
+        });
+        
+        // Utility functions
+        function formatCurrency(amount) {
+            return new Intl.NumberFormat('id-ID', {
+                style: 'currency',
+                currency: 'IDR',
+                minimumFractionDigits: 0
+            }).format(amount);
+        }
+        
+        function formatNumber(number) {
+            return new Intl.NumberFormat('id-ID').format(number);
+        }
+        
+        function showAlert(message, type = 'info') {
+            const alertContainer = document.getElementById('alert-container') || document.body;
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
+            alertDiv.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            
+            alertContainer.insertBefore(alertDiv, alertContainer.firstChild);
+            
+            // Auto-hide after 5 seconds
+            setTimeout(() => {
+                const bsAlert = new bootstrap.Alert(alertDiv);
+                bsAlert.close();
+            }, 5000);
+        }
+        
+        // AJAX helper function
+        async function apiRequest(url, options = {}) {
+            try {
+                const response = await fetch(url, {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...options.headers
+                    },
+                    ...options
+                });
+                
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.message || 'Request failed');
+                }
+                
+                return data;
+            } catch (error) {
+                console.error('API Request Error:', error);
+                throw error;
+            }
+        }
+        
+        // Real-time updates (if needed)
+        function startRealTimeUpdates() {
+            // Update stats every 30 seconds
+            setInterval(async () => {
+                try {
+                    const stats = await apiRequest('/api/stats');
+                    updateStatsDisplay(stats.data);
+                } catch (error) {
+                    console.error('Failed to update stats:', error);
+                }
+            }, 30000);
+        }
+        
+        function updateStatsDisplay(stats) {
+            // Update balance
+            const balanceElement = document.getElementById('current-balance');
+            if (balanceElement && stats.balance) {
+                balanceElement.textContent = formatCurrency(stats.balance.balance);
+            }
+            
+            // Update other stats as needed
+            const incomeElement = document.getElementById('total-income');
+            if (incomeElement && stats.balance) {
+                incomeElement.textContent = formatCurrency(stats.balance.income);
+            }
+            
+            const expenseElement = document.getElementById('total-expense');
+            if (expenseElement && stats.balance) {
+                expenseElement.textContent = formatCurrency(stats.balance.expense);
+            }
+        }
+        
+        // Initialize real-time updates on dashboard
+        if (window.location.pathname === '/dashboard') {
+            startRealTimeUpdates();
+        }
+    </script>
+    
+    <!-- Page-specific scripts -->
+    <% if (typeof pageScript !== 'undefined') { %>
+        <%- pageScript %>
+    <% } %>
+    
+    <footer class="text-center text-muted py-3 mt-5">
+        <div class="container">
+            <small>
+                &copy; <%= currentYear %> <%= appName %> - Aplikasi Kas Kelas dengan AI Integration
+            </small>
+        </div>
+    </footer>
+</body>
+</html>

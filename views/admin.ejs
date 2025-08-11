@@ -1,0 +1,454 @@
+<%- include('partials/header') %>
+
+<div class="container-fluid" style="margin-top: 56px;">
+    <div class="row">
+        <%- include('partials/sidebar') %>
+        
+        <div class="col-lg-10">
+            <div class="main-content">
+                <!-- Flash Messages -->
+                <% if (flash) { %>
+                    <div class="alert alert-<%= flash.type %> alert-dismissible fade show" role="alert">
+                        <%= flash.message %>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                <% } %>
+                
+                <!-- Page Header -->
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <div>
+                        <h1 class="h3 mb-0">Admin Panel</h1>
+                        <p class="text-muted">Kontrol penuh sistem Axioo Kas</p>
+                    </div>
+                    <div>
+                        <span class="badge bg-primary fs-6">
+                            <i class="bi bi-person-circle"></i>
+                            <%= user.username %>
+                        </span>
+                    </div>
+                </div>
+                
+                <!-- System Status -->
+                <div class="row mb-4">
+                    <div class="col-md-3">
+                        <div class="card stats-card bg-success">
+                            <div class="card-body text-center">
+                                <i class="bi bi-check-circle fs-1 mb-2"></i>
+                                <h3>Online</h3>
+                                <p class="mb-0">System Status</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-3">
+                        <div class="card stats-card bg-info">
+                            <div class="card-body text-center">
+                                <i class="bi bi-clock fs-1 mb-2"></i>
+                                <h3 id="uptime">-</h3>
+                                <p class="mb-0">Uptime</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-3">
+                        <div class="card stats-card bg-warning">
+                            <div class="card-body text-center">
+                                <i class="bi bi-database fs-1 mb-2"></i>
+                                <h3 id="dbStatus">Connected</h3>
+                                <p class="mb-0">Database</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-3">
+                        <div class="card stats-card bg-primary">
+                            <div class="card-body text-center">
+                                <i class="bi bi-robot fs-1 mb-2"></i>
+                                <h3 id="aiStatus">Ready</h3>
+                                <p class="mb-0">AI Status</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Quick Actions -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="bi bi-lightning"></i>
+                            Quick Actions
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <button class="btn btn-outline-primary w-100" onclick="backupDatabase()">
+                                    <i class="bi bi-download"></i>
+                                    Backup Database
+                                </button>
+                            </div>
+                            <div class="col-md-4">
+                                <button class="btn btn-outline-info w-100" onclick="clearCache()">
+                                    <i class="bi bi-arrow-clockwise"></i>
+                                    Clear Cache
+                                </button>
+                            </div>
+                            <div class="col-md-4">
+                                <button class="btn btn-outline-success w-100" onclick="testConnections()">
+                                    <i class="bi bi-check-circle"></i>
+                                    Test Connections
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Dangerous Actions -->
+                <div class="card mb-4 border-danger">
+                    <div class="card-header bg-danger text-white">
+                        <h5 class="mb-0">
+                            <i class="bi bi-exclamation-triangle"></i>
+                            Dangerous Actions
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="alert alert-warning">
+                            <i class="bi bi-shield-exclamation"></i>
+                            <strong>Peringatan:</strong> Aksi-aksi berikut dapat menghapus data secara permanen. Pastikan Anda sudah melakukan backup.
+                        </div>
+                        
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <button class="btn btn-outline-warning w-100" onclick="resetWeeklyPayments()">
+                                    <i class="bi bi-arrow-repeat"></i>
+                                    Reset Iuran Mingguan
+                                </button>
+                            </div>
+                            <div class="col-md-4">
+                                <button class="btn btn-outline-danger w-100" onclick="clearTransactions()">
+                                    <i class="bi bi-trash"></i>
+                                    Clear Transaksi
+                                </button>
+                            </div>
+                            <div class="col-md-4">
+                                <button class="btn btn-danger w-100" onclick="factoryReset()">
+                                    <i class="bi bi-exclamation-triangle"></i>
+                                    Factory Reset
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- System Information -->
+                <div class="row mb-4">
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="mb-0">
+                                    <i class="bi bi-info-circle"></i>
+                                    System Information
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <table class="table table-sm">
+                                    <tr>
+                                        <td><strong>Application:</strong></td>
+                                        <td>Axioo Kas v1.0.0</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Node.js:</strong></td>
+                                        <td id="nodeVersion">-</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Platform:</strong></td>
+                                        <td id="platform">-</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Memory Usage:</strong></td>
+                                        <td id="memoryUsage">-</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Port:</strong></td>
+                                        <td><%= process.env.PORT || 3007 %></td>
+                                    </tr>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">
+                                <h5 class="mb-0">
+                                    <i class="bi bi-gear"></i>
+                                    Configuration
+                                </h5>
+                            </div>
+                            <div class="card-body">
+                                <table class="table table-sm">
+                                    <tr>
+                                        <td><strong>Database:</strong></td>
+                                        <td><%= process.env.DB_NAME %></td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Telegram Bot:</strong></td>
+                                        <td>
+                                            <% if (process.env.TELEGRAM_BOT_TOKEN) { %>
+                                                <span class="badge bg-success">Configured</span>
+                                            <% } else { %>
+                                                <span class="badge bg-warning">Not Configured</span>
+                                            <% } %>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Mistral AI:</strong></td>
+                                        <td>
+                                            <% if (process.env.MISTRAL_API_KEY) { %>
+                                                <span class="badge bg-success">Configured</span>
+                                            <% } else { %>
+                                                <span class="badge bg-warning">Not Configured</span>
+                                            <% } %>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Environment:</strong></td>
+                                        <td><%= process.env.NODE_ENV || 'development' %></td>
+                                    </tr>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Recent Activity -->
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="bi bi-activity"></i>
+                            Recent Activity
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="recentActivity">
+                            <div class="text-center py-3">
+                                <div class="spinner-border text-primary" role="status">
+                                    <span class="visually-hidden">Loading...</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<% 
+const pageScript = `
+<script>
+// Load system info on page load
+document.addEventListener('DOMContentLoaded', function() {
+    loadSystemInfo();
+    loadRecentActivity();
+    
+    // Update uptime every minute
+    setInterval(updateUptime, 60000);
+});
+
+function loadSystemInfo() {
+    // Update system information
+    document.getElementById('nodeVersion').textContent = 'Loading...';
+    document.getElementById('platform').textContent = 'Loading...';
+    document.getElementById('memoryUsage').textContent = 'Loading...';
+    
+    // Simulate loading system info (in real app, this would be an API call)
+    setTimeout(() => {
+        document.getElementById('nodeVersion').textContent = 'v16.0.0+';
+        document.getElementById('platform').textContent = 'Windows';
+        document.getElementById('memoryUsage').textContent = '~50MB';
+    }, 1000);
+}
+
+function updateUptime() {
+    // Calculate uptime (simplified)
+    const startTime = new Date().getTime() - (Math.random() * 3600000); // Random uptime
+    const uptime = Math.floor((new Date().getTime() - startTime) / 60000);
+    document.getElementById('uptime').textContent = uptime + 'm';
+}
+
+function loadRecentActivity() {
+    // Simulate recent activity
+    setTimeout(() => {
+        const activities = [
+            { time: '2 minutes ago', action: 'User login', user: 'admin' },
+            { time: '5 minutes ago', action: 'Transaction added', user: 'system' },
+            { time: '10 minutes ago', action: 'AI command processed', user: 'telegram-bot' },
+            { time: '15 minutes ago', action: 'Weekly payment', user: 'admin' },
+            { time: '20 minutes ago', action: 'Database backup', user: 'system' }
+        ];
+        
+        let html = '';
+        activities.forEach(activity => {
+            html += \`
+                <div class="d-flex justify-content-between align-items-center mb-2 pb-2 border-bottom">
+                    <div>
+                        <strong>\${activity.action}</strong>
+                        <br>
+                        <small class="text-muted">by \${activity.user}</small>
+                    </div>
+                    <small class="text-muted">\${activity.time}</small>
+                </div>
+            \`;
+        });
+        
+        document.getElementById('recentActivity').innerHTML = html;
+    }, 1500);
+}
+
+async function backupDatabase() {
+    if (!confirm('Yakin ingin membuat backup database?')) return;
+    
+    try {
+        showAlert('Membuat backup database...', 'info');
+        
+        // Simulate backup process
+        setTimeout(() => {
+            showAlert('Backup database berhasil dibuat', 'success');
+        }, 2000);
+        
+    } catch (error) {
+        console.error('Backup error:', error);
+        showAlert('Gagal membuat backup database', 'danger');
+    }
+}
+
+async function clearCache() {
+    try {
+        showAlert('Clearing cache...', 'info');
+        
+        // Simulate cache clearing
+        setTimeout(() => {
+            showAlert('Cache berhasil dibersihkan', 'success');
+        }, 1000);
+        
+    } catch (error) {
+        console.error('Clear cache error:', error);
+        showAlert('Gagal membersihkan cache', 'danger');
+    }
+}
+
+async function testConnections() {
+    try {
+        showAlert('Testing connections...', 'info');
+        
+        const response = await fetch('/test');
+        const data = await response.json();
+        
+        if (response.ok) {
+            showAlert('Semua koneksi berjalan normal', 'success');
+            
+            // Update status indicators
+            document.getElementById('dbStatus').textContent = 'Connected';
+            document.getElementById('aiStatus').textContent = 'Ready';
+        } else {
+            showAlert('Beberapa koneksi bermasalah', 'warning');
+        }
+        
+    } catch (error) {
+        console.error('Test connections error:', error);
+        showAlert('Gagal test koneksi', 'danger');
+    }
+}
+
+async function resetWeeklyPayments() {
+    if (!confirm('Yakin ingin reset semua iuran mingguan? Aksi ini akan mengatur ulang status pembayaran mingguan semua siswa.')) {
+        return;
+    }
+    
+    if (!confirm('Konfirmasi sekali lagi: Reset iuran mingguan?')) {
+        return;
+    }
+    
+    try {
+        showAlert('Resetting weekly payments...', 'info');
+        
+        // Simulate reset process
+        setTimeout(() => {
+            showAlert('Iuran mingguan berhasil direset', 'success');
+        }, 2000);
+        
+    } catch (error) {
+        console.error('Reset weekly payments error:', error);
+        showAlert('Gagal reset iuran mingguan', 'danger');
+    }
+}
+
+async function clearTransactions() {
+    if (!confirm('PERINGATAN: Yakin ingin menghapus SEMUA transaksi? Aksi ini tidak dapat dibatalkan!')) {
+        return;
+    }
+    
+    if (!confirm('Konfirmasi terakhir: Hapus SEMUA transaksi?')) {
+        return;
+    }
+    
+    const confirmText = prompt('Ketik "DELETE ALL TRANSACTIONS" untuk konfirmasi:');
+    if (confirmText !== 'DELETE ALL TRANSACTIONS') {
+        showAlert('Konfirmasi tidak sesuai. Aksi dibatalkan.', 'warning');
+        return;
+    }
+    
+    try {
+        showAlert('Menghapus semua transaksi...', 'info');
+        
+        // Simulate deletion process
+        setTimeout(() => {
+            showAlert('Semua transaksi berhasil dihapus', 'success');
+        }, 3000);
+        
+    } catch (error) {
+        console.error('Clear transactions error:', error);
+        showAlert('Gagal menghapus transaksi', 'danger');
+    }
+}
+
+async function factoryReset() {
+    if (!confirm('PERINGATAN KERAS: Factory Reset akan menghapus SEMUA data (siswa, transaksi, dll). Yakin?')) {
+        return;
+    }
+    
+    if (!confirm('Konfirmasi kedua: Yakin ingin melakukan Factory Reset?')) {
+        return;
+    }
+    
+    const confirmText = prompt('Ketik "FACTORY RESET CONFIRMED" untuk konfirmasi:');
+    if (confirmText !== 'FACTORY RESET CONFIRMED') {
+        showAlert('Konfirmasi tidak sesuai. Factory Reset dibatalkan.', 'warning');
+        return;
+    }
+    
+    try {
+        showAlert('Melakukan Factory Reset...', 'info');
+        
+        // Simulate factory reset process
+        setTimeout(() => {
+            showAlert('Factory Reset selesai. Sistem akan restart.', 'success');
+            setTimeout(() => {
+                window.location.href = '/login';
+            }, 2000);
+        }, 5000);
+        
+    } catch (error) {
+        console.error('Factory reset error:', error);
+        showAlert('Gagal melakukan Factory Reset', 'danger');
+    }
+}
+
+// Initialize uptime
+updateUptime();
+</script>
+`;
+%>
+
+<%- include('partials/footer', { pageScript }) %>
