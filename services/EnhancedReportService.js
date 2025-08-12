@@ -5,7 +5,6 @@ const Student = require('../models/Student');
 const Transaction = require('../models/Transaction');
 const { createCanvas, registerFont } = require('canvas');
 const DateHelperService = require('./DateHelperService');
-const appSettings = require('../config/app-settings.json');
 
 class EnhancedReportService {
     constructor() {
@@ -48,6 +47,7 @@ class EnhancedReportService {
     // Generate routine report data based on the configured start date
     async generateRoutineReportData() {
         try {
+            const appSettings = await DateHelperService.getAppSettings();
             const routineStartDate = appSettings.routineStartDate;
             const today = new Date();
 
@@ -621,7 +621,8 @@ class EnhancedReportService {
                 success: true,
                 filename,
                 filepath,
-                buffer
+                buffer,
+                data
             };
         } catch (error) {
             console.error('Error generating image report:', error);

@@ -9,7 +9,6 @@ const EnhancedReportService = require('./services/EnhancedReportService');
 const EnhancedAIService = require('./services/EnhancedAIService');
 const MultiWeekPaymentService = require('./services/MultiWeekPaymentService');
 const DateHelperService = require('./services/DateHelperService');
-const appSettings = require('./config/app-settings.json');
 require('dotenv').config();
 
 class AxiooKasBot {
@@ -305,6 +304,7 @@ Atau kirim pesan langsung untuk diproses dengan AI!
             const parts = params.split(' ');
 
             if (parts[0] === 'status') {
+                const appSettings = await DateHelperService.getAppSettings();
                 const routineStartDate = appSettings.routineStartDate;
                 const today = new Date();
                 const periods = DateHelperService.getRoutinePeriods(routineStartDate, today);
