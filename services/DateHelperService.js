@@ -1,4 +1,18 @@
+const fs = require('fs').promises;
+const path = require('path');
+
 class DateHelperService {
+    /**
+     * Reads and parses the application settings from the JSON file.
+     * Ensures that the latest settings are always read from disk, avoiding require() cache.
+     * @returns {Promise<Object>} A promise that resolves to the application settings object.
+     */
+    static async getAppSettings() {
+        const configPath = path.join(__dirname, '..', 'config', 'app-settings.json');
+        const configData = await fs.readFile(configPath, 'utf8');
+        return JSON.parse(configData);
+    }
+
     /**
      * Calculates all 7-day routine periods from a start date until a given end date.
      * @param {string} routineStartDateStr - The starting date in 'YYYY-MM-DD' format.

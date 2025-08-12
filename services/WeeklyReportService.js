@@ -3,7 +3,6 @@ const Student = require('../models/Student');
 const Transaction = require('../models/Transaction');
 const EnhancedReportService = require('./EnhancedReportService');
 const DateHelperService = require('./DateHelperService');
-const appSettings = require('../config/app-settings.json');
 
 class WeeklyReportService {
     constructor(bot) {
@@ -106,6 +105,7 @@ class WeeklyReportService {
 
     // Generate routine text report content for the latest period
     async generateRoutineTextReport() {
+        const appSettings = await DateHelperService.getAppSettings();
         const routineStartDate = appSettings.routineStartDate;
         const today = new Date();
         const periods = DateHelperService.getRoutinePeriods(routineStartDate, today);
