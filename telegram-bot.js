@@ -188,7 +188,20 @@ Atau kirim pesan langsung untuk diproses dengan AI!
         
         try {
             const balance = await Transaction.getBalance();
-            const weeklyCollection = await Transaction.getWeeklyCollection();
+            const appSettings = await DateHelperService.getAppSettings();
+            const periods = DateHelperService.getRoutinePeriods(appSettings.routineStartDate, new Date());
+
+            let periodCollectionText = "Tidak ada periode rutin yang aktif saat ini.";
+
+            if (periods.length > 0) {
+                const currentPeriod = periods[periods.length - 1];
+                const periodCollection = await Transaction.getCollectionForPeriod(currentPeriod.startDate, currentPeriod.endDate);
+                const totalStudents = await Student.getAll().then(s => s.length);
+
+                periodCollectionText = `*Iuran Periode Ini (${currentPeriod.periodLabel}):*\n` +
+                                     `💰 Terkumpul: Rp ${periodCollection.total.toLocaleString('id-ID')}\n` +
+                                     `👥 Siswa lunas: ${periodCollection.lunasCount} dari ${totalStudents} siswa`;
+            }
             
             const message = `
 💰 *Saldo Kas Kelas*
@@ -197,9 +210,7 @@ Atau kirim pesan langsung untuk diproses dengan AI!
 📈 Total pemasukan: Rp ${balance.income.toLocaleString('id-ID')}
 📉 Total pengeluaran: Rp ${balance.expense.toLocaleString('id-ID')}
 
-📅 *Iuran Minggu Ini:*
-💰 Terkumpul: Rp ${weeklyCollection.weekly_total.toLocaleString('id-ID')}
-👥 Siswa yang lunas minggu ini: ${weeklyCollection.students_lunas} orang
+📅 ${periodCollectionText}
             `;
             
             this.bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
