@@ -304,6 +304,7 @@ Atau kirim pesan langsung untuk diproses dengan AI!
             const parts = params.split(' ');
 
             if (parts[0] === 'status') {
+                const weeklyPaymentAmount = 3000;
                 const appSettings = await DateHelperService.getAppSettings();
                 const routineStartDate = appSettings.routineStartDate;
                 const today = new Date();
@@ -315,41 +316,34 @@ Atau kirim pesan langsung untuk diproses dengan AI!
                 }
 
                 const students = await Student.getAll();
-                const allTransactions = await Transaction.getTransactionsBetween(periods[0].startDate, today);
 
-                let message = `📊 *Status Iuran Rutin*\n`;
+                let message = `📊 *Status Iuran Rutin (Kumulatif)*\n`;
                 message += `📅 Dimulai dari: ${new Date(routineStartDate).toLocaleDateString('id-ID')}\n`;
-                message += `💰 Iuran: Rp 3.000 / periode\n\n`;
+                message += `💰 Iuran: Rp ${weeklyPaymentAmount.toLocaleString('id-ID')} / periode\n\n`;
 
                 students.forEach(student => {
-                    const studentTransactions = allTransactions.filter(t => t.student_id === student.id && t.type === 'iuran');
+                    let remainingAmount = student.total_paid;
                     let statusString = '';
 
-                    periods.forEach(period => {
-                        const paidInPeriod = studentTransactions
-                            .filter(t => {
-                                const txDate = new Date(t.created_at);
-                                return txDate >= period.startDate && txDate <= period.endDate;
-                            })
-                            .reduce((sum, t) => sum + parseFloat(t.amount), 0);
-
-                        if (paidInPeriod >= 3000) {
+                    periods.forEach(() => {
+                        if (remainingAmount >= weeklyPaymentAmount) {
+                            remainingAmount -= weeklyPaymentAmount;
                             statusString += '✅';
-                        } else if (paidInPeriod > 0) {
+                        } else if (remainingAmount > 0) {
+                            remainingAmount = 0;
                             statusString += '❕';
                         } else {
                             statusString += '❌';
                         }
                     });
 
-                    const totalPaid = studentTransactions.reduce((sum, t) => sum + parseFloat(t.amount), 0);
-                    const amount = totalPaid > 0 ? ` (Rp ${totalPaid.toLocaleString('id-ID')})` : '';
+                    const amount = student.total_paid > 0 ? ` (Rp ${student.total_paid.toLocaleString('id-ID')})` : '';
                     message += `${statusString} ${student.name}${amount}\n`;
                 });
 
                 message += `\n📋 *Keterangan:*\n`;
-                message += `✅ = Lunas (Rp 3.000)\n`;
-                message += `❕ = Sebagian (< Rp 3.000)\n`;
+                message += `✅ = Lunas\n`;
+                message += `❕ = Lunas sebagian (di periode terakhir bayar)\n`;
                 message += `❌ = Belum bayar\n`;
                 message += `\nTotal periode sejauh ini: ${periods.length}`;
 
