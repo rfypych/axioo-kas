@@ -1,47 +1,56 @@
-# 🏦 Axioo Kas - Aplikasi Kas Kelas dengan AI Integration
+<div align="center">
 
-Aplikasi web modern untuk manajemen kas kelas yang terintegrasi dengan Telegram Bot dan Mistral AI untuk pemrosesan perintah natural language.
+# 🏦 Axioo Kas - Aplikasi Kas Kelas dengan AI
+
+**Aplikasi web modern untuk manajemen kas kelas yang terintegrasi dengan Telegram Bot dan Mistral AI untuk pemrosesan perintah natural language.**
+
+<p>
+  <img alt="Node.js" src="https://img.shields.io/badge/Node.js-18.x-green?style=for-the-badge&logo=node.js">
+  <img alt="Express.js" src="https://img.shields.io/badge/Express.js-4.x-lightgrey?style=for-the-badge&logo=express">
+  <img alt="Database" src="https://img.shields.io/badge/Database-MySQL-blue?style=for-the-badge&logo=mysql">
+  <img alt="AI" src="https://img.shields.io/badge/AI-Mistral-orange?style=for-the-badge">
+  <img alt="License" src="https://img.shields.io/badge/License-MIT-purple?style=for-the-badge">
+</p>
+
+</div>
+
+---
 
 ## ✨ Fitur Utama
 
-### 🌐 Web Application
-- **Dashboard Interaktif** - Statistik real-time, grafik transaksi, progress iuran
-- **Manajemen Transaksi** - CRUD lengkap dengan filter dan pencarian
-- **Data Siswa** - Kelola data siswa dan tracking pembayaran
-- **Iuran Mingguan** - Sistem tracking iuran dengan progress bar
-- **Laporan** - Analisis dan export data
-- **Admin Panel** - Kontrol penuh sistem dengan safety features
-
-### 🤖 Telegram Bot Integration
-- **Natural Language Commands** - Perintah dalam bahasa Indonesia
-- **AI Processing** - Mistral AI untuk interpretasi perintah
-- **Real-time Notifications** - Alert otomatis untuk transaksi
-- **Multi-command Support** - 8+ perintah bot yang lengkap
-
-### 🧠 Mistral AI Features
-- **Smart Command Processing** - Contoh: "kas 3000 muzaki"
-- **Auto Student Detection** - Pencarian nama siswa otomatis
-- **Confidence Scoring** - Validasi akurasi interpretasi AI
-- **Fallback Suggestions** - Konfirmasi untuk perintah ambigu
+- **🌐 Dashboard Interaktif**: Statistik real-time, grafik transaksi, dan progress iuran mingguan.
+- **🤖 Integrasi Telegram Bot**: Kelola kas langsung dari Telegram menggunakan perintah bahasa Indonesia.
+- **🧠 Pemrosesan AI**: Didukung oleh Mistral AI untuk memahami perintah natural seperti `"kas 3000 untuk budi"`.
+- **📊 Laporan Dinamis**: Generate laporan rutin dalam format Excel, CSV, atau gambar tabel.
+- **⚙️ Sistem Iuran Fleksibel**:
+    - Tanggal mulai rutin dapat diatur via perintah bot (`/laporan set-tanggal`).
+    - Laporan dan status iuran otomatis menyesuaikan berdasarkan periode 7-harian dari tanggal mulai.
+    - Sistem pembayaran iuran bersifat **kumulatif**, di mana pembayaran akan mengisi "slot" periode terlama yang belum lunas.
+- **🔐 Keamanan**: Dilengkapi dengan session management, validasi input, dan proteksi dari SQL Injection.
+- **📱 Desain Responsif**: Tampilan yang optimal di berbagai perangkat, baik desktop maupun mobile.
 
 ## 🚀 Quick Start
 
-### 1. Setup Awal
+### 1. Kebutuhan Sistem
+- Node.js (v18 atau lebih baru)
+- MySQL Server
+
+### 2. Setup Awal
 ```bash
-# Clone atau extract project
+# 1. Clone atau download project
+git clone https://github.com/username/axioo-kas.git
 cd axioo-kas
 
-# Install dependencies
-yarn install
-# atau
+# 2. Install dependencies
 npm install
 
-# Setup database
+# 3. Setup database
+# (Pastikan service MySQL sudah berjalan)
 node setup-database.js
 ```
 
-### 2. Konfigurasi Environment
-Edit file `.env`:
+### 3. Konfigurasi Environment
+Salin file `.env.example` menjadi `.env` dan isi variabel yang dibutuhkan:
 ```env
 # Database
 DB_HOST=localhost
@@ -63,271 +72,102 @@ TELEGRAM_BOT_TOKEN=your_bot_token_here
 MISTRAL_API_KEY=your_mistral_api_key_here
 ```
 
-### 3. Jalankan Aplikasi
+### 4. Jalankan Aplikasi
+- **Untuk Windows**: Gunakan `start.bat` untuk menjalankan web app dan bot secara bersamaan di terminal terpisah.
+- **Manual (semua OS)**:
+  ```bash
+  # Jalankan web application (di satu terminal)
+  npm start
 
-#### Windows (Recommended)
-```bash
-# Setup lengkap (sekali saja)
-start.bat
+  # Jalankan Telegram bot (di terminal lain)
+  npm run bot
+  ```
 
-# Jalankan web app
-start-web.bat
-
-# Jalankan telegram bot
-start-bot.bat
-```
-
-#### Manual
-```bash
-# Web application
-yarn start
-# atau
-node app.js
-
-# Telegram bot (terminal terpisah)
-yarn bot
-# atau
-node telegram-bot.js
-```
-
-## 📱 Akses Aplikasi
-
+### 5. Akses Aplikasi
 - **Web Dashboard**: http://localhost:3007
-- **Admin Panel**: http://localhost:3007/admin
-- **API Test**: http://localhost:3007/test
-- **Login**: `admin` / `admin123`
+- **Login**: `admin` / `admin123` (sesuai `.env`)
 
-## 🤖 Telegram Bot Commands
+---
 
-### Basic Commands
-- `/start` - Menu utama dan panduan
-- `/saldo` - Cek saldo kas dan statistik
-- `/help` - Bantuan lengkap
+## 📖 Detail & Panduan Lanjutan
 
-### Transaction Commands
-- `/tambah [jumlah] [deskripsi]` - Tambah pemasukan/pengeluaran
-- `/iuran [nama] [jumlah]` - Bayar iuran siswa
-- `/iuran status` - Status iuran mingguan
+<details>
+<summary><strong>🤖 Daftar Perintah Telegram Bot</strong></summary>
 
-### Information Commands
-- `/riwayat` - 10 transaksi terakhir
-- `/siswa` - Daftar semua siswa
+### Perintah Dasar
+- `/start` - Menampilkan menu utama dan panduan singkat.
+- `/saldo` - Mengecek saldo kas terkini dan statistik umum.
+- `/help` - Menampilkan panduan penggunaan bot yang lebih lengkap.
 
-### AI Commands
-- `/ai [perintah]` - Proses dengan AI
-- Atau kirim pesan langsung tanpa `/ai`
+### Transaksi
+- `/iuran [nama] [jumlah]` - Mencatat pembayaran iuran untuk seorang siswa.
+- `/tambah [jumlah] [deskripsi]` - Mencatat pemasukan umum di luar iuran siswa (misal: donasi).
+- `/kurang [jumlah] [deskripsi]` - Mencatat pengeluaran kas.
 
-### Contoh Penggunaan
-```
-/tambah 50000 Sumbangan alumni
-/iuran muzaki 5000
-/ai kas 3000 andi
-kas 5000 budi
-beli spidol 15000
-terima uang 100000 dari wali kelas
-```
+### Laporan & Status
+- `/iuran status` - Menampilkan status pembayaran iuran kumulatif semua siswa.
+- `/riwayat` - Melihat 10 transaksi terakhir yang tercatat.
+- `/siswa` - Menampilkan daftar semua siswa yang aktif.
 
-## 🧠 Mistral AI Integration
+### Laporan Lanjutan
+- `/laporan` - Menampilkan menu untuk mengelola laporan otomatis.
+- `/laporan test [format]` - Mengirim laporan tes dengan format tertentu (`text`, `excel`, `csv`, `image`).
+- `/laporan jadwal [cron_expression]` - Mengubah jadwal pengiriman laporan otomatis.
+- `/laporan set-tanggal [YYYY-MM-DD]` - **Penting!** Mengatur tanggal dimulainya siklus iuran rutin.
 
-### Cara Kerja
-1. **Input Processing** - AI menganalisis perintah natural language
-2. **Entity Extraction** - Ekstrak jumlah, nama siswa, jenis transaksi
-3. **Student Matching** - Pencarian nama siswa dari database
-4. **Confidence Scoring** - Validasi akurasi interpretasi (0-1)
-5. **Auto Execution** - Eksekusi otomatis jika confidence > 0.7
+### Perintah AI
+- `/ai [perintah]` - Memproses perintah kompleks menggunakan AI.
+- Anda juga bisa mengirim perintah natural language secara langsung tanpa diawali `/ai`.
+  - **Contoh**: `bayar kas 6000 untuk muzaki dan nanda`, `beli spidol 15rb`, `dapat donasi 50000 dari kepsek`
 
-### Contoh AI Processing
-```
-Input: "kas 3000 muzaki"
-AI Output:
-{
-  "type": "iuran",
-  "amount": 3000,
-  "student_name": "Achmad Muzaki Asror",
-  "description": "Iuran kas",
-  "confidence": 0.95
-}
-```
+</details>
 
-### Supported Commands
-- **Iuran**: "kas [jumlah] [nama]", "iuran [nama] [jumlah]"
-- **Pemasukan**: "terima [jumlah] [deskripsi]", "dapat [jumlah]"
-- **Pengeluaran**: "beli [item] [jumlah]", "bayar [deskripsi] [jumlah]"
+<details>
+<summary><strong>🛠️ Detail Teknis (Struktur Proyek & Tech Stack)</strong></summary>
 
-## 📊 Database Schema
-
-### Students Table
-```sql
-CREATE TABLE students (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    class_name VARCHAR(100) NOT NULL,
-    phone VARCHAR(20) NULL,
-    email VARCHAR(255) NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-);
-```
-
-### Transactions Table
-```sql
-CREATE TABLE transactions (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    type ENUM('income', 'expense', 'iuran') NOT NULL,
-    amount DECIMAL(15,2) NOT NULL,
-    description TEXT NOT NULL,
-    student_id INT NULL,
-    created_by VARCHAR(100) NOT NULL DEFAULT 'system',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE SET NULL
-);
-```
-
-## 🔧 API Endpoints
-
-### Authentication
-- `POST /login` - Login admin
-- `GET /logout` - Logout
-
-### Dashboard
-- `GET /dashboard` - Dashboard utama
-- `GET /api/stats` - Statistik real-time
-- `GET /api/chart-data` - Data untuk grafik
-
-### Transactions
-- `GET /transactions` - List transaksi
-- `POST /transactions` - Tambah transaksi
-- `PUT /transactions/:id` - Update transaksi
-- `DELETE /transactions/:id` - Hapus transaksi
-- `POST /api/ai-command` - Proses AI command
-
-### Students
-- `GET /students` - List siswa
-- `POST /students` - Tambah siswa
-- `PUT /students/:id` - Update siswa
-- `DELETE /students/:id` - Hapus siswa
-- `GET /api/students` - API siswa
-
-### Weekly Payments
-- `GET /weekly-payments` - Iuran mingguan
-- `POST /api/pay-weekly` - Bayar iuran
-
-## 🛠️ Development
-
-### Project Structure
+### Struktur Proyek
 ```
 axioo-kas/
-├── config/          # Database & AI configuration
-├── controllers/     # Business logic
-├── models/          # Database models
-├── routes/          # Express routes
-├── views/           # EJS templates
-├── public/          # Static assets
-├── utils/           # Utility functions
-├── app.js           # Main application
-├── telegram-bot.js  # Telegram bot
-└── setup-database.js # Database setup
+├── config/          # Konfigurasi database & AI
+├── controllers/     # Logika bisnis aplikasi
+├── models/          # Model dan interaksi database
+├── routes/          # Rute Express.js
+├── services/        # Servis untuk logika spesifik (laporan, AI, dll.)
+├── views/           # Template EJS untuk tampilan web
+├── app.js           # Entry point utama aplikasi web
+├── telegram-bot.js  # Entry point untuk Telegram bot
+└── setup-database.js # Skrip untuk inisialisasi database
 ```
 
 ### Tech Stack
 - **Backend**: Node.js, Express.js
-- **Database**: MySQL with mysql2
-- **Template Engine**: EJS
-- **Frontend**: Bootstrap 5, Chart.js
-- **Bot**: node-telegram-bot-api
+- **Database**: MySQL (dengan `mysql2`)
+- **Frontend**: EJS, Bootstrap 5, Chart.js
+- **Bot**: `node-telegram-bot-api`
 - **AI**: Mistral AI API
-- **Session**: express-session
+- **Lainnya**: `dotenv`, `express-session`, `cors`
 
-### Dependencies
-```json
-{
-  "express": "^4.18.2",
-  "ejs": "^3.1.9",
-  "mysql2": "^3.6.5",
-  "node-telegram-bot-api": "^0.66.0",
-  "axios": "^1.6.2",
-  "dotenv": "^16.3.1",
-  "express-session": "^1.17.3",
-  "bcryptjs": "^2.4.3",
-  "moment": "^2.29.4",
-  "cors": "^2.8.5"
-}
-```
+</details>
 
-## 🔒 Security Features
+<details>
+<summary><strong>🚀 Panduan Deployment & Troubleshooting</strong></summary>
 
-- **Session Management** - Secure admin authentication
-- **Input Validation** - Sanitasi input untuk mencegah injection
-- **CORS Protection** - Cross-origin request protection
-- **Error Handling** - Comprehensive error handling
-- **SQL Injection Prevention** - Prepared statements
+### Deployment dengan PM2
+1. Install PM2 secara global: `npm install -g pm2`
+2. Start aplikasi web: `pm2 start app.js --name "axioo-kas-web"`
+3. Start bot: `pm2 start telegram-bot.js --name "axioo-kas-bot"`
+4. Simpan konfigurasi: `pm2 save`
+5. Atur agar PM2 berjalan saat startup: `pm2 startup`
 
-## 📱 Mobile Responsive
+### Troubleshooting Umum
+- **Gagal Koneksi Database**: Pastikan service MySQL berjalan dan konfigurasi di `.env` sudah benar.
+- **Bot Tidak Merespon**: Cek `TELEGRAM_BOT_TOKEN` di `.env`. Pastikan token valid dan bot memiliki koneksi internet.
+- **AI Tidak Bekerja**: Cek `MISTRAL_API_KEY` dan pastikan kuota API Anda masih tersedia.
+- **Port Sudah Digunakan**: Ubah `PORT` di `.env` atau matikan proses lain yang menggunakan port tersebut.
 
-- **Bootstrap 5** - Mobile-first responsive design
-- **Touch Friendly** - Optimized for mobile interaction
-- **Progressive Web App** - PWA capabilities
-- **Sidebar Navigation** - Collapsible mobile menu
-
-## 🚀 Deployment
-
-### Production Setup
-1. **Environment Variables** - Set production values
-2. **Database** - Configure production MySQL
-3. **SSL/HTTPS** - Enable secure connections
-4. **Process Manager** - Use PM2 for production
-5. **Reverse Proxy** - Nginx configuration
-
-### PM2 Configuration
-```bash
-# Install PM2
-npm install -g pm2
-
-# Start applications
-pm2 start app.js --name "axioo-kas-web"
-pm2 start telegram-bot.js --name "axioo-kas-bot"
-
-# Save PM2 configuration
-pm2 save
-pm2 startup
-```
-
-## 🐛 Troubleshooting
-
-### Common Issues
-
-1. **Database Connection Failed**
-   - Pastikan MySQL running
-   - Cek konfigurasi .env
-   - Verifikasi user permissions
-
-2. **Telegram Bot Not Responding**
-   - Cek TELEGRAM_BOT_TOKEN di .env
-   - Pastikan bot token valid
-   - Verifikasi network connectivity
-
-3. **Mistral AI Not Working**
-   - Cek MISTRAL_API_KEY di .env
-   - Verifikasi API key valid
-   - Cek quota API
-
-4. **Port Already in Use**
-   - Ubah PORT di .env
-   - Kill process yang menggunakan port
-   - Restart aplikasi
-
-## 📞 Support
-
-Untuk bantuan dan support:
-- **Documentation**: Baca README.md lengkap
-- **Issues**: Laporkan bug atau request fitur
-- **Development**: Kontribusi welcome!
-
-## 📄 License
-
-MIT License - Bebas digunakan untuk keperluan pendidikan dan komersial.
+</details>
 
 ---
-
-**Axioo Kas** - Aplikasi Kas Kelas Modern dengan AI Integration 🚀
+<div align="center">
+  <p>Dibuat untuk keperluan edukasi dan manajemen kas yang lebih modern.</p>
+</div>

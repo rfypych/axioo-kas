@@ -69,10 +69,9 @@ class EnhancedReportService {
             console.log(`Generating routine report from ${reportStartDate.toLocaleDateString()} to ${reportEndDate.toLocaleDateString()}`);
 
             const students = await Student.getAll();
-            // This method doesn't exist yet, I will add it in step 6
-            const allTransactions = await Transaction.getTransactionsBetween(reportStartDate, reportEndDate);
+            const allTransactions = await Transaction.getTransactionsBetween(reportStartDate, reportEndDate); // Keep for transaction list
 
-            const studentsWithRoutineData = await this.processStudentRoutinePayments(students, allTransactions, periods);
+            const studentsWithRoutineData = await this.processStudentRoutinePayments(students, periods);
 
             // Calculate summary statistics
             const totalExpectedIuran = studentsWithRoutineData.reduce((sum, s) => sum + s.totalExpected, 0);
@@ -523,33 +522,27 @@ class EnhancedReportService {
         }
     }
 
-    // Process student payments against the dynamic routine periods
-    async processStudentRoutinePayments(students, allTransactions, periods) {
+    // Process student payments with the new cumulative, slot-filling logic
+    async processStudentRoutinePayments(students, periods) {
         const weeklyPaymentAmount = 3000; // Rp 3.000 per period
 
         return students.map(student => {
-            const studentTransactions = allTransactions.filter(t =>
-                t.student_id === student.id && t.type === 'iuran'
-            );
-
-            const totalStudentPaid = studentTransactions.reduce((sum, t) => sum + parseFloat(t.amount), 0);
+            let remainingAmount = student.total_paid; // total_paid is the cumulative amount from Student.getAll()
 
             const routinePayments = periods.map(period => {
-                const transactionsInPeriod = studentTransactions.filter(t => {
-                    const txDate = new Date(t.created_at);
-                    return txDate >= period.startDate && txDate <= period.endDate;
-                });
-
-                const paidInPeriod = transactionsInPeriod.reduce((sum, t) => sum + parseFloat(t.amount), 0);
-
+                let paidInPeriod = 0;
                 let status = '[X]';
                 let isPaid = false;
                 let isPartial = false;
 
-                if (paidInPeriod >= weeklyPaymentAmount) {
+                if (remainingAmount >= weeklyPaymentAmount) {
+                    paidInPeriod = weeklyPaymentAmount;
+                    remainingAmount -= weeklyPaymentAmount;
                     status = '[V]';
                     isPaid = true;
-                } else if (paidInPeriod > 0) {
+                } else if (remainingAmount > 0) {
+                    paidInPeriod = remainingAmount;
+                    remainingAmount = 0;
                     status = '[!]';
                     isPartial = true;
                 }
@@ -561,7 +554,7 @@ class EnhancedReportService {
                     isPaid,
                     isPartial,
                     status,
-                    transactions: transactionsInPeriod
+                    transactions: [] // Note: Per-period transaction list is lost with this simpler logic
                 };
             });
 
@@ -570,25 +563,25 @@ class EnhancedReportService {
             const partialPeriods = routinePayments.filter(p => p.isPartial).length;
             const paymentPercentage = periods.length > 0 ? Math.round((paidPeriods / periods.length) * 100) : 0;
 
-            let status;
-            if (paymentPercentage === 100) {
-                status = 'LUNAS';
+            let overallStatus;
+            if (paymentPercentage >= 100) {
+                overallStatus = 'LUNAS';
             } else if (paidPeriods > 0 || partialPeriods > 0) {
-                status = 'SEBAGIAN';
+                overallStatus = 'SEBAGIAN';
             } else {
-                status = 'BELUM BAYAR';
+                overallStatus = 'BELUM BAYAR';
             }
 
             return {
                 ...student,
                 routinePayments,
                 totalExpected,
-                totalPaid: totalStudentPaid,
+                totalPaid: student.total_paid, // The total cumulative amount paid
                 paidPeriods,
                 partialPeriods,
                 totalPeriods: periods.length,
                 paymentPercentage,
-                status,
+                status: overallStatus,
             };
         });
     }
