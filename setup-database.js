@@ -32,6 +32,7 @@ async function setupDatabase() {
                 class_name VARCHAR(100) NOT NULL,
                 phone VARCHAR(20) NULL,
                 email VARCHAR(255) NULL,
+                status VARCHAR(20) NOT NULL DEFAULT 'active',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 INDEX idx_name (name),
@@ -83,6 +84,19 @@ async function setupDatabase() {
         await connection.query(usersTable);
         console.log('✅ Users table created/verified');
         
+        // Add 'status' column to students table if it doesn't exist (for backward compatibility)
+        try {
+            await connection.query("SELECT status FROM students LIMIT 1");
+        } catch (e) {
+            if (e.code === 'ER_BAD_FIELD_ERROR') {
+                console.log("ℹ️ Column 'status' not found in students table. Adding it now...");
+                await connection.query("ALTER TABLE students ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'active' AFTER email");
+                console.log("✅ Column 'status' added successfully.");
+            } else {
+                throw e; // Re-throw other errors
+            }
+        }
+
         // Insert sample students data - XI TKJ A Real Data
         const sampleStudents = [
             ['Achmad Muzaki Asror', 'XI TKJ A', '081234567890', 'muzaki@email.com'],
@@ -188,34 +202,13 @@ async function setupDatabase() {
             console.log('⚠️ Balance view creation skipped (may already exist)');
         }
 
+        // The weekly_payments_view is obsolete due to the new routine-based system.
+        // It is removed to avoid confusion.
         try {
             await connection.query('DROP VIEW IF EXISTS weekly_payments_view');
-            const weeklyPaymentsView = `
-                CREATE VIEW weekly_payments_view AS
-                SELECT
-                    s.id,
-                    s.name,
-                    s.class_name,
-                    COALESCE(SUM(CASE
-                        WHEN t.type = 'iuran' AND WEEK(t.created_at) = WEEK(NOW())
-                        THEN t.amount ELSE 0 END), 0) as weekly_paid,
-                    CASE
-                        WHEN COALESCE(SUM(CASE
-                            WHEN t.type = 'iuran' AND WEEK(t.created_at) = WEEK(NOW())
-                            THEN t.amount ELSE 0 END), 0) >= 3000
-                        THEN 'paid'
-                        ELSE 'pending'
-                    END as status
-                FROM students s
-                LEFT JOIN transactions t ON s.id = t.student_id
-                GROUP BY s.id, s.name, s.class_name
-                ORDER BY s.name ASC
-            `;
-
-            await connection.query(weeklyPaymentsView);
-            console.log('✅ Weekly payments view created');
+            console.log('✅ Obsolete weekly_payments_view removed');
         } catch (error) {
-            console.log('⚠️ Weekly payments view creation skipped (may already exist)');
+            console.log('⚠️ Could not remove weekly_payments_view (may not exist)');
         }
         
         console.log('');
