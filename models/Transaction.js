@@ -249,6 +249,24 @@ class Transaction {
             return [];
         }
     }
+
+    static async findRecentIuranTransaction(studentId, amount) {
+        try {
+            const query = `
+                SELECT * FROM transactions
+                WHERE student_id = ?
+                AND type = 'iuran'
+                AND amount = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+            `;
+            const result = await executeQuery(query, [studentId, amount]);
+            return result.success && result.data.length > 0 ? result.data[0] : null;
+        } catch (error) {
+            console.error('Error in findRecentIuranTransaction:', error);
+            return null;
+        }
+    }
 }
 
 module.exports = Transaction;

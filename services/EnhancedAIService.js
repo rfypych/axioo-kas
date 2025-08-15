@@ -3,8 +3,9 @@ const Student = require('../models/Student');
 const Transaction = require('../models/Transaction');
 
 class EnhancedAIService {
-    constructor(bot, weeklyReport, enhancedReport, multiWeekPayment) {
-        this.bot = bot;
+    constructor(botInstance, weeklyReport, enhancedReport, multiWeekPayment) {
+        this.botInstance = botInstance;
+        this.bot = botInstance.bot;
         this.weeklyReport = weeklyReport;
         this.enhancedReport = enhancedReport;
         this.multiWeekPayment = multiWeekPayment;
@@ -140,7 +141,47 @@ PENTING:
 - Jika hanya 1 siswa terdeteksi, gunakan type: "single_iuran"
 - Jika multiple siswa, gunakan type: "multi_iuran"
 - Confidence tinggi (>0.8) jika nama siswa jelas cocok
-- Sertakan nama yang tidak ditemukan di array "not_found"`;
+- Sertakan nama yang tidak ditemukan di array "not_found"
+
+FORMAT BARU (PENGECUALIAN):
+- "semua siswa kecuali danu kas 3k"
+- "kas 5rb semua kecuali huda dan nanda"
+
+ATURAN BARU:
+- Jika ada kata "semua" dan "kecuali", set "operation": "pay_all_except".
+- "payments" array akan berisi satu item dengan jumlah yang harus dibayar.
+- "excluded_students" array akan berisi nama-nama siswa yang dikecualikan.
+
+CONTOH BARU:
+Input: "semua siswa kecuali danu dan huda kas 5k"
+Output: {
+    "type": "multi_iuran",
+    "operation": "pay_all_except",
+    "payments": [{"amount": 5000}],
+    "excluded_students": ["danu", "huda"],
+    "description": "Iuran kas",
+    "confidence": 0.9
+}
+
+FORMAT BARU (PENGHAPUSAN):
+- "hapus kas danu 3k"
+- "tolong delete pembayaran 5000 dari huda"
+
+ATURAN BARU (PENGHAPUSAN):
+- Jika ada kata "hapus" atau "delete", set "operation": "delete_transaction".
+- "payments" array akan berisi satu item dengan 'student_name' dan 'amount' yang akan dihapus.
+- "type" harus "expense" atau sejenisnya, karena ini adalah tindakan penghapusan.
+
+CONTOH BARU (PENGHAPUSAN):
+Input: "hapus iuran 5k dari nanda"
+Output: {
+    "type": "expense",
+    "operation": "delete_transaction",
+    "payments": [{"student_name": "nanda", "amount": 5000}],
+    "description": "Penghapusan iuran 5k dari nanda",
+    "confidence": 0.9
+}
+`;
     }
 
     parseMultiStudentResponse(aiResponse) {
@@ -189,7 +230,15 @@ PENTING:
 
     async executeMultiStudentCommands(aiData, userId) {
         try {
-            const { type, payments, description, not_found } = aiData;
+            const { type, payments, description, not_found, operation, excluded_students } = aiData;
+
+            if (operation === 'pay_all_except') {
+                return await this.executePayAllExcept(payments[0].amount, excluded_students, description, userId);
+            }
+
+            if (operation === 'delete_transaction') {
+                return await this.handleTransactionDeletionRequest(payments[0], userId);
+            }
 
             if (type === 'single_iuran' && payments.length === 1) {
                 // Handle single student payment
@@ -424,6 +473,59 @@ PENTING:
             const result = await this.processMultiStudentCommand(command, students);
             console.log('Result:', JSON.stringify(result, null, 2));
             console.log('---');
+        }
+    }
+
+    async executePayAllExcept(amount, excludedNames, description, userId) {
+        try {
+            const allStudents = await Student.getAll();
+            const excludedStudentObjects = await Promise.all(
+                excludedNames.map(name => this.findStudentByName(name))
+            );
+            const excludedIds = excludedStudentObjects.filter(s => s).map(s => s.id);
+
+            const studentsToPay = allStudents.filter(s => !excludedIds.includes(s.id));
+
+            if (studentsToPay.length === 0) {
+                return { success: true, message: 'ℹ️ Tidak ada siswa yang perlu membayar setelah pengecualian.' };
+            }
+
+            const payments = studentsToPay.map(s => ({ student_name: s.name, amount }));
+
+            return await this.executeMultiplePayments(payments, description, userId, []);
+
+        } catch (error) {
+            console.error('Error executing pay all except:', error);
+            return {
+                success: false,
+                message: '❌ Terjadi kesalahan saat memproses pembayaran "semua kecuali"'
+            };
+        }
+    }
+
+    async handleTransactionDeletionRequest(paymentInfo, userId) {
+        try {
+            const student = await this.findStudentByName(paymentInfo.student_name);
+            if (!student) {
+                return { success: false, message: `❌ Siswa "${paymentInfo.student_name}" tidak ditemukan.` };
+            }
+
+            // Find the most recent transaction for this student with the specified amount
+            const transaction = await Transaction.findRecentIuranTransaction(student.id, paymentInfo.amount);
+
+            if (!transaction) {
+                return {
+                    success: false,
+                    message: `❌ Tidak ditemukan transaksi iuran sebesar Rp ${paymentInfo.amount.toLocaleString('id-ID')} untuk ${student.name}.`
+                };
+            }
+
+            // Pass to the bot to handle confirmation from the user
+            return await this.botInstance.confirmTransactionDeletion(userId, transaction);
+
+        } catch (error) {
+            console.error('Error handling transaction deletion request:', error);
+            return { success: false, message: '❌ Terjadi kesalahan saat mencari transaksi untuk dihapus.' };
         }
     }
 }
