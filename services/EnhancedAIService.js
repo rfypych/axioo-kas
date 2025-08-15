@@ -192,7 +192,12 @@ Output: {
                 throw new Error('No JSON found in AI response');
             }
 
-            const parsed = JSON.parse(jsonMatch[0]);
+            let parsed;
+            try {
+                parsed = JSON.parse(jsonMatch[0]);
+            } catch (e) {
+                throw new Error(`Failed to parse AI response as JSON: ${e.message}`);
+            }
 
             // Validate required fields
             if (!parsed.type || !parsed.payments || !Array.isArray(parsed.payments)) {

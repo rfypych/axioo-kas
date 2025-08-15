@@ -198,7 +198,7 @@ Jika tidak ada yang cocok, set confidence < 0.5`;
                     'Authorization': `Bearer ${this.apiKey}`,
                     'Content-Type': 'application/json'
                 },
-                timeout: 15000
+                timeout: 30000
             });
 
             return response;
