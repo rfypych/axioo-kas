@@ -285,9 +285,9 @@ Berikan response HANYA dalam format JSON yang valid.
             }
 
             // Add not found students
-            if (notFound.length > 0) {
+            if (notFoundNames.length > 0) {
                 message += `\n❓ *Nama Tidak Ditemukan:*\n`;
-                notFound.forEach(name => {
+                notFoundNames.forEach(name => {
                     message += `• ${name}\n`;
                 });
             }
@@ -298,7 +298,7 @@ Berikan response HANYA dalam format JSON yang valid.
                 data: {
                     successful: results,
                     errors: errors,
-                    notFound: notFound,
+                    notFound: notFoundNames,
                     totalAmount: totalAmount
                 }
             };
