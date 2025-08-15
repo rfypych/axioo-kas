@@ -3,37 +3,38 @@ const { executeQuery } = require('../config/database');
 class Student {
     static async getAll(includeInactive = false) {
         try {
+            let studentResult;
             let query;
+
             if (includeInactive) {
                 query = 'SELECT * FROM students ORDER BY name ASC';
+                studentResult = await executeQuery(query);
             } else {
-                // Robust query that handles missing status column
-                query = `SELECT * FROM students 
-                        WHERE (status = 'active' OR status IS NULL OR status = '') 
-                        ORDER BY name ASC`;
-            }
-            
-            const result = await executeQuery(query);
-            
-            if (!result.success) {
-                console.error('Student.getAll error:', result.error);
-                
-                // Fallback query without status filter
-                if (result.error.includes('Unknown column')) {
-                    console.log('Falling back to query without status filter...');
-                    const fallbackResult = await executeQuery('SELECT * FROM students ORDER BY name ASC');
-                    return fallbackResult.success ? fallbackResult.data : [];
+                // Primary query attempts to filter by status
+                query = `SELECT * FROM students WHERE (status = 'active' OR status IS NULL OR status = '') ORDER BY name ASC`;
+                studentResult = await executeQuery(query);
+
+                // Fallback if 'status' column doesn't exist
+                if (!studentResult.success && studentResult.error.includes('Unknown column')) {
+                    console.warn("Student.getAll: 'status' column not found, falling back to query without status filter.");
+                    query = 'SELECT * FROM students ORDER BY name ASC';
+                    studentResult = await executeQuery(query);
                 }
+            }
+
+            // If both primary and fallback queries fail for other reasons, return empty.
+            if (!studentResult.success) {
+                console.error('Student.getAll failed after all attempts:', studentResult.error);
                 return [];
             }
-            
-            // Add payment calculations
+
+            const students = studentResult.data;
+
+            // This block now runs for both successful primary query and successful fallback query.
             const studentsWithPayments = await Promise.all(
-                result.data.map(async (student) => {
-                    const paymentResult = await executeQuery(
-                        'SELECT COALESCE(SUM(amount), 0) as total_paid, COUNT(*) as payment_count FROM transactions WHERE student_id = ? AND type = "iuran"',
-                        [student.id]
-                    );
+                students.map(async (student) => {
+                    const paymentQuery = 'SELECT COALESCE(SUM(amount), 0) as total_paid, COUNT(*) as payment_count FROM transactions WHERE student_id = ? AND type = "iuran"';
+                    const paymentResult = await executeQuery(paymentQuery, [student.id]);
                     
                     const totalPaid = paymentResult.success ? parseFloat(paymentResult.data[0].total_paid) : 0;
                     const paymentCount = paymentResult.success ? parseInt(paymentResult.data[0].payment_count) : 0;
@@ -42,7 +43,7 @@ class Student {
                         ...student,
                         total_paid: totalPaid,
                         payment_count: paymentCount,
-                        status: student.status || 'active' // Default to active if null
+                        status: student.status || 'active' // Default to active if status is null/missing
                     };
                 })
             );

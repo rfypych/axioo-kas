@@ -22,11 +22,12 @@ class AxiooKasBot {
             return;
         }
         
-        this.bot = new TelegramBot(this.token, { polling: true });
+        const isTesting = process.env.IS_TESTING === 'true';
+        this.bot = new TelegramBot(this.token, { polling: !isTesting });
         this.weeklyReport = new WeeklyReportService(this.bot);
         this.enhancedReport = new EnhancedReportService();
         this.multiWeekPayment = new MultiWeekPaymentService();
-        this.enhancedAI = new EnhancedAIService(this.bot, this.weeklyReport, this.enhancedReport, this.multiWeekPayment);
+        this.enhancedAI = new EnhancedAIService(this, this.weeklyReport, this.enhancedReport, this.multiWeekPayment);
         this.setupCommands();
         this.setupHandlers();
         
@@ -148,6 +149,67 @@ class AxiooKasBot {
         this.bot.on('error', (error) => {
             console.error('Telegram bot error:', error);
         });
+
+        // Callback query handler for inline buttons
+        this.bot.on('callback_query', (callbackQuery) => {
+            this.handleCallbackQuery(callbackQuery);
+        });
+    }
+
+    async confirmTransactionDeletion(chatId, transaction) {
+        const date = new Date(transaction.created_at).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' });
+        const text = `⚠️ Apakah Anda yakin ingin menghapus transaksi ini?\n\n` +
+                     `**ID:** ${transaction.id}\n` +
+                     `**Deskripsi:** ${transaction.description}\n` +
+                     `**Jumlah:** Rp ${transaction.amount.toLocaleString('id-ID')}\n` +
+                     `**Tanggal:** ${date}`;
+
+        const options = {
+            parse_mode: 'Markdown',
+            reply_markup: {
+                inline_keyboard: [
+                    [
+                        { text: '✅ Ya, Hapus', callback_data: `delete_confirm_${transaction.id}` },
+                        { text: '❌ Batal', callback_data: `delete_cancel_${transaction.id}` }
+                    ]
+                ]
+            }
+        };
+
+        await this.bot.sendMessage(chatId, text, options);
+        return { success: true, message: 'Menunggu konfirmasi penghapusan...' };
+    }
+
+    async handleCallbackQuery(callbackQuery) {
+        const msg = callbackQuery.message;
+        const data = callbackQuery.data;
+
+        const [action, type, transactionId] = data.split('_');
+
+        if (action !== 'delete') return;
+
+        if (type === 'confirm') {
+            const success = await Transaction.delete(transactionId);
+            if (success) {
+                await this.bot.editMessageText(`✅ Transaksi (ID: ${transactionId}) berhasil dihapus.`, {
+                    chat_id: msg.chat.id,
+                    message_id: msg.message_id,
+                    reply_markup: null
+                });
+            } else {
+                await this.bot.editMessageText(`❌ Gagal menghapus transaksi (ID: ${transactionId}).`, {
+                    chat_id: msg.chat.id,
+                    message_id: msg.message_id,
+                    reply_markup: null
+                });
+            }
+        } else if (type === 'cancel') {
+            await this.bot.editMessageText('❌ Penghapusan dibatalkan.', {
+                chat_id: msg.chat.id,
+                message_id: msg.message_id,
+                reply_markup: null
+            });
+        }
     }
 
     async handleStart(msg) {
@@ -188,7 +250,20 @@ Atau kirim pesan langsung untuk diproses dengan AI!
         
         try {
             const balance = await Transaction.getBalance();
-            const weeklyCollection = await Transaction.getWeeklyCollection();
+            const appSettings = await DateHelperService.getAppSettings();
+            const periods = DateHelperService.getRoutinePeriods(appSettings.routineStartDate, new Date());
+
+            let periodCollectionText = "Tidak ada periode rutin yang aktif saat ini.";
+
+            if (periods.length > 0) {
+                const currentPeriod = periods[periods.length - 1];
+                const periodCollection = await Transaction.getCollectionForPeriod(currentPeriod.startDate, currentPeriod.endDate);
+                const totalStudents = await Student.getAll().then(s => s.length);
+
+                periodCollectionText = `*Iuran Periode Ini (${currentPeriod.periodLabel}):*\n` +
+                                     `💰 Terkumpul: Rp ${periodCollection.total.toLocaleString('id-ID')}\n` +
+                                     `👥 Siswa lunas: ${periodCollection.lunasCount} dari ${totalStudents} siswa`;
+            }
             
             const message = `
 💰 *Saldo Kas Kelas*
@@ -197,9 +272,7 @@ Atau kirim pesan langsung untuk diproses dengan AI!
 📈 Total pemasukan: Rp ${balance.income.toLocaleString('id-ID')}
 📉 Total pengeluaran: Rp ${balance.expense.toLocaleString('id-ID')}
 
-📅 *Iuran Minggu Ini:*
-💰 Terkumpul: Rp ${weeklyCollection.weekly_total.toLocaleString('id-ID')}
-👥 Siswa yang lunas minggu ini: ${weeklyCollection.students_lunas} orang
+📅 ${periodCollectionText}
             `;
             
             this.bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
