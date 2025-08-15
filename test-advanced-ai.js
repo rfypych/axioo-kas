@@ -8,7 +8,6 @@ const Student = require('./models/Student');
 const Transaction = require('./models/Transaction');
 
 // --- Manual Mocking ---
-// Mock the bot object to prevent network calls
 const mockBot = {
     sendMessage: (chatId, text, options) => {
         console.log(`[BOT MOCK] sendMessage called for chatId ${chatId}.`);
@@ -28,27 +27,22 @@ const mockBot = {
     }
 };
 
-// Mock database-dependent methods to remove DB dependency
 const dummyStudents = [
     { id: 1, name: 'Achmad Muzaki Asror' }, { id: 2, name: 'Adira Putra Raihan' },
-    { id: 3, name: 'Afif Fadila Arub' }, { id: 4, name: 'Airlangga Setyo Putro' },
     { id: 29, name: 'Rofikul Huda' }, { id: 34, name: 'Yoga Arif Nurrohman' }
 ];
 Student.getAll = async () => {
-    console.log("[DB MOCK] Student.getAll() called. Returning dummy students.");
+    console.log("[DB MOCK] Student.getAll() called.");
     return dummyStudents;
 };
 Transaction.findRecentIuranTransaction = async (studentId, amount) => {
     console.log(`[DB MOCK] findRecentIuranTransaction called for student ${studentId}, amount ${amount}.`);
     return { id: 999, student_id: studentId, amount: amount, description: 'Dummy Transaction' };
 };
-Transaction.create = async () => {
-    console.log("[DB MOCK] Transaction.create called. Returning dummy success.");
-    return { success: true };
-};
+Transaction.create = async () => { return { success: true }; };
 
 
-console.log("📝 Starting Advanced AI Feature Test (with DB Mocking)...");
+console.log("📝 Starting Advanced AI Feature Test (v2)...");
 
 async function runTest() {
     const botInstance = new AxiooKasBot();
@@ -66,20 +60,26 @@ async function runTest() {
     const exclusionCommand = "semua siswa kecuali yoga dan rofikul kas 3k";
     console.log(`Input: "${exclusionCommand}"`);
 
-    // Mock the AI response
     enhancedAI.processMultiStudentCommand = async () => ({
         success: true,
         data: {
-            type: 'multi_iuran',
             operation: 'pay_all_except',
-            payments: [{ amount: 3000 }],
-            excluded_students: ['yoga', 'rofikul'],
-            description: 'Iuran kas',
-            confidence: 0.95
+            type: 'multi_iuran',
+            names: ['yoga', 'rofikul'],
+            amounts: [3000],
+            description: 'Iuran kas'
         }
     });
 
+    // Temporarily mock the final execution method to inspect its inputs
+    const originalExecutePayAllExcept = enhancedAI.executePayAllExcept;
+    enhancedAI.executePayAllExcept = async (amount, excludedStudents, description, userId) => {
+        console.log("✅ `executePayAllExcept` was called correctly.");
+        console.log(`   - Amount: ${amount}`);
+        console.log(`   - Excluded Students:`, excludedStudents.map(s => s.name));
+    };
     await enhancedAI.processEnhancedCommand(exclusionCommand, 'test-chat', 'test-user');
+    enhancedAI.executePayAllExcept = originalExecutePayAllExcept; // Restore
 
 
     // --- Test 2: Deletion Command ---
@@ -87,19 +87,25 @@ async function runTest() {
     const deletionCommand = "hapus iuran 5000 dari rofikul huda";
     console.log(`Input: "${deletionCommand}"`);
 
-    // Mock the AI response
     enhancedAI.processMultiStudentCommand = async () => ({
         success: true,
         data: {
-            type: 'expense',
             operation: 'delete_transaction',
-            payments: [{ student_name: 'rofikul huda', amount: 5000 }],
-            description: 'Penghapusan iuran 5k dari rofikul huda',
-            confidence: 0.98
+            type: 'expense',
+            names: ['rofikul huda'],
+            amounts: [5000],
+            description: 'Penghapusan iuran 5k dari rofikul huda'
         }
     });
 
+    const originalHandleDeletion = enhancedAI.handleTransactionDeletionRequest;
+    enhancedAI.handleTransactionDeletionRequest = async (student, amount, userId) => {
+        console.log("✅ `handleTransactionDeletionRequest` was called correctly.");
+        console.log(`   - Student:`, student.name);
+        console.log(`   - Amount:`, amount);
+    };
     await enhancedAI.processEnhancedCommand(deletionCommand, 'test-chat', 'test-user');
+    enhancedAI.handleTransactionDeletionRequest = originalHandleDeletion; // Restore
 
     console.log("\n✅ Advanced AI tests finished.");
 }

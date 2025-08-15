@@ -18,11 +18,8 @@ class EnhancedAIService {
         try {
             console.log(`Processing enhanced AI command: ${message}`);
 
-            // Get all students for AI processing
-            const students = await Student.getAll();
-
-            // Process command with enhanced multi-student AI
-            const aiResult = await this.processMultiStudentCommand(message, students);
+            // Step 1: Get simple structured data from AI
+            const aiResult = await this.processMultiStudentCommand(message);
 
             if (!aiResult.success) {
                 return {
@@ -31,8 +28,19 @@ class EnhancedAIService {
                 };
             }
 
+            // Step 2: Match extracted names with the student database
+            const allStudents = await Student.getAll();
+            const { matched, notFound } = await this.findStudentsByNames(aiResult.data.names, allStudents);
+
+            // Step 3: Prepare data for execution
+            const executionData = {
+                ...aiResult.data,
+                matched_students: matched,
+                not_found_names: notFound
+            };
+
             // Execute the parsed commands
-            const executionResult = await this.executeMultiStudentCommands(aiResult.data, userId);
+            const executionResult = await this.executeMultiStudentCommands(executionData, userId);
 
             return {
                 success: true,
@@ -49,13 +57,13 @@ class EnhancedAIService {
         }
     }
 
-    async processMultiStudentCommand(message, studentsList) {
+    async processMultiStudentCommand(message) {
         if (!this.mistral.apiKey) {
             return { success: false, error: 'Mistral AI not configured' };
         }
 
         try {
-            const prompt = this.buildMultiStudentPrompt(message, studentsList);
+            const prompt = this.buildMultiStudentPrompt(message);
 
             const response = await this.mistral.makeRequest({
                 model: this.mistral.model,
@@ -82,116 +90,83 @@ class EnhancedAIService {
         }
     }
 
-    buildMultiStudentPrompt(message, studentsList) {
-        const studentsText = studentsList.map(s => `- ${s.name} (ID: ${s.id})`).join('\n');
-
+    buildMultiStudentPrompt(message) {
         return `
-Analisis perintah kas multi-siswa berikut: "${message}"
+Analisis perintah natural language berikut: "${message}"
 
-Daftar siswa yang tersedia:
-${studentsText}
+Tugas Anda adalah mengurai perintah ini menjadi komponen-komponennya dalam format JSON. Fokus pada identifikasi operasi, nama-nama yang terlibat, dan jumlah uang.
 
-TUGAS: Deteksi dan parse pembayaran multiple siswa dengan format beragam:
+OPERASI YANG DIDUKUNG:
+- "pay": Pembayaran iuran untuk satu atau lebih siswa.
+- "pay_all_except": Pembayaran iuran untuk semua siswa kecuali beberapa.
+- "delete_transaction": Perintah untuk menghapus iuran yang sudah ada.
+- "income": Pemasukan umum.
+- "expense": Pengeluaran umum.
+- "reset": Reset data.
 
-FORMAT YANG DIDUKUNG:
-1. "danu, huda, nanda, agil kas 5k" -> semua siswa bayar 5000
-2. "agil kas 3k, danu 5k, nanda 2k, putra 8k" -> masing-masing jumlah berbeda
-3. "kas 3k danu huda nanda" -> danu, huda, nanda masing-masing 3000
-4. "danu 3000 huda 5000 nanda 2000" -> masing-masing jumlah berbeda
-5. "kas danu 3k, huda 5k" -> kombinasi format
+ATURAN:
+1.  **Operasi & Tipe**: Tentukan 'operation' dan 'type' yang paling sesuai.
+2.  **Ekstrak Nama**: Ambil SEMUA nama yang disebutkan dalam perintah. Jangan coba mencocokkan dengan daftar. Tulis apa adanya.
+3.  **Ekstrak Jumlah**: Ambil jumlah uang. Jika ada beberapa, pasangkan dengan nama yang sesuai. Jika hanya ada satu jumlah untuk banyak nama, gunakan jumlah itu untuk semua.
+4.  **Deskripsi**: Buat deskripsi singkat dari perintah.
 
-ATURAN PARSING:
-- Deteksi semua nama siswa yang disebutkan (gunakan fuzzy matching)
-- Ekstrak jumlah untuk setiap siswa
-- Jika hanya 1 jumlah disebutkan untuk multiple siswa, gunakan jumlah yang sama
-- Support format: 3k=3000, 5rb=5000, 2000, dll
-- Jika ada siswa yang tidak ditemukan, tetap proses yang ditemukan
+CONTOH:
 
-CONTOH PARSING:
-Input: "danu, huda kas 5k"
-Output: [
-  {"student_name": "danu", "amount": 5000},
-  {"student_name": "huda", "amount": 5000}
-]
-
-Input: "agil 3k, danu 5k"
-Output: [
-  {"student_name": "agil", "amount": 3000},
-  {"student_name": "danu", "amount": 5000}
-]
-
-Berikan response dalam format JSON:
-{
-    "type": "multi_iuran|single_iuran|income|expense|reset",
-    "payments": [
-        {
-            "student_id": number_or_null,
-            "student_name": "string",
-            "amount": number,
-            "confidence": 0.0-1.0
-        }
-    ],
-    "total_amount": number,
-    "description": "string",
-    "confidence": 0.0-1.0,
-    "not_found": ["nama1", "nama2"]
-}
-
-PENTING:
-- Jika hanya 1 siswa terdeteksi, gunakan type: "single_iuran"
-- Jika multiple siswa, gunakan type: "multi_iuran"
-- Confidence tinggi (>0.8) jika nama siswa jelas cocok
-- Sertakan nama yang tidak ditemukan di array "not_found"
-
-FORMAT BARU (PENGECUALIAN):
-- "semua siswa kecuali danu kas 3k"
-- "kas 5rb semua kecuali huda dan nanda"
-
-ATURAN BARU:
-- Jika ada kata "semua" dan "kecuali", set "operation": "pay_all_except".
-- "payments" array akan berisi satu item dengan jumlah yang harus dibayar.
-- "excluded_students" array akan berisi nama-nama siswa yang dikecualikan.
-
-CONTOH BARU:
-Input: "semua siswa kecuali danu dan huda kas 5k"
+Input: "kas 3k danu, huda, dan nanda"
 Output: {
+    "operation": "pay",
     "type": "multi_iuran",
-    "operation": "pay_all_except",
-    "payments": [{"amount": 5000}],
-    "excluded_students": ["danu", "huda"],
-    "description": "Iuran kas",
-    "confidence": 0.9
+    "names": ["danu", "huda", "nanda"],
+    "amounts": [3000],
+    "description": "Pembayaran iuran 3k untuk danu, huda, nanda"
 }
 
-FORMAT BARU (PENGHAPUSAN):
-- "hapus kas danu 3k"
-- "tolong delete pembayaran 5000 dari huda"
-
-ATURAN BARU (PENGHAPUSAN):
-- Jika ada kata "hapus" atau "delete", set "operation": "delete_transaction".
-- "payments" array akan berisi satu item dengan 'student_name' dan 'amount' yang akan dihapus.
-- "type" harus "expense" atau sejenisnya, karena ini adalah tindakan penghapusan.
-
-CONTOH BARU (PENGHAPUSAN):
-Input: "hapus iuran 5k dari nanda"
+Input: "semua siswa kecuali yoga dan risty kas 5rb"
 Output: {
-    "type": "expense",
-    "operation": "delete_transaction",
-    "payments": [{"student_name": "nanda", "amount": 5000}],
-    "description": "Penghapusan iuran 5k dari nanda",
-    "confidence": 0.9
+    "operation": "pay_all_except",
+    "type": "multi_iuran",
+    "names": ["yoga", "risty"],
+    "amounts": [5000],
+    "description": "Iuran 5rb untuk semua kecuali yoga dan risty"
 }
+
+Input: "hapus uang kas danu sebesar 3k"
+Output: {
+    "operation": "delete_transaction",
+    "type": "expense",
+    "names": ["danu"],
+    "amounts": [3000],
+    "description": "Hapus kas danu 3k"
+}
+
+Input: "terima donasi 100k dari kepsek"
+Output: {
+    "operation": "income",
+    "type": "income",
+    "names": [],
+    "amounts": [100000],
+    "description": "Donasi 100k dari kepsek"
+}
+
+Input: "agil kas 3k, danu 5k, nanda 2k"
+Output: {
+    "operation": "pay",
+    "type": "multi_iuran",
+    "names": ["agil", "danu", "nanda"],
+    "amounts": [3000, 5000, 2000],
+    "description": "Pembayaran iuran untuk agil, danu, nanda"
+}
+
+Berikan response HANYA dalam format JSON yang valid.
 `;
     }
 
     parseMultiStudentResponse(aiResponse) {
         try {
-            // Clean the response to extract JSON
             const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
             if (!jsonMatch) {
                 throw new Error('No JSON found in AI response');
             }
-
             let parsed;
             try {
                 parsed = JSON.parse(jsonMatch[0]);
@@ -199,33 +174,12 @@ Output: {
                 throw new Error(`Failed to parse AI response as JSON: ${e.message}`);
             }
 
-            // Validate required fields
-            if (!parsed.type || !parsed.payments || !Array.isArray(parsed.payments)) {
-                throw new Error('Invalid multi-student response format');
+            // Basic validation for the new simplified format
+            if (!parsed.operation || !parsed.names || !parsed.amounts) {
+                throw new Error('Invalid simplified AI response format');
             }
 
-            // Validate each payment
-            const validPayments = parsed.payments.filter(payment => {
-                return payment.student_name &&
-                       typeof payment.amount === 'number' &&
-                       payment.amount > 0;
-            });
-
-            if (validPayments.length === 0) {
-                throw new Error('No valid payments found');
-            }
-
-            return {
-                success: true,
-                data: {
-                    type: parsed.type,
-                    payments: validPayments,
-                    total_amount: parsed.total_amount || validPayments.reduce((sum, p) => sum + p.amount, 0),
-                    description: parsed.description || 'Pembayaran kas',
-                    confidence: parsed.confidence || 0.7,
-                    not_found: parsed.not_found || []
-                }
-            };
+            return { success: true, data: parsed };
 
         } catch (error) {
             console.error('Error parsing multi-student AI response:', error.message);
@@ -233,30 +187,30 @@ Output: {
         }
     }
 
-    async executeMultiStudentCommands(aiData, userId) {
+    async executeMultiStudentCommands(executionData, userId) {
         try {
-            const { type, payments, description, not_found, operation, excluded_students } = aiData;
+            const { operation, type, amounts, description, matched_students, not_found_names } = executionData;
 
             if (operation === 'pay_all_except') {
-                return await this.executePayAllExcept(payments[0].amount, excluded_students, description, userId);
+                return await this.executePayAllExcept(amounts[0], matched_students, description, userId);
             }
 
             if (operation === 'delete_transaction') {
-                return await this.handleTransactionDeletionRequest(payments[0], userId);
+                const student_to_delete = matched_students[0];
+                const amount_to_delete = amounts[0];
+                return await this.handleTransactionDeletionRequest(student_to_delete, amount_to_delete, userId);
             }
 
-            if (type === 'single_iuran' && payments.length === 1) {
-                // Handle single student payment
-                return await this.executeSinglePayment(payments[0], description, userId);
-            } else if (type === 'multi_iuran' && payments.length > 1) {
-                // Handle multiple student payments
-                return await this.executeMultiplePayments(payments, description, userId, not_found);
-            } else {
-                return {
-                    success: false,
-                    message: '❌ Format pembayaran tidak valid'
-                };
+            if (operation === 'pay') {
+                const payments = matched_students.map((student, index) => ({
+                    student: student,
+                    amount: amounts.length === 1 ? amounts[0] : amounts[index]
+                }));
+                return await this.executeMultiplePayments(payments, description, userId, not_found_names);
             }
+
+            // Handle other types like income, expense, reset if necessary
+            return { success: false, message: '❌ Operasi AI tidak dikenali.' };
 
         } catch (error) {
             console.error('Error executing multi-student commands:', error);
@@ -267,55 +221,7 @@ Output: {
         }
     }
 
-    async executeSinglePayment(payment, description, userId) {
-        try {
-            // Find student by name
-            const student = await this.findStudentByName(payment.student_name);
-
-            if (!student) {
-                return {
-                    success: false,
-                    message: `❌ Siswa "${payment.student_name}" tidak ditemukan`
-                };
-            }
-
-            // Process payment using MultiWeekPaymentService
-            const result = await this.multiWeekPayment.processMultiWeekPayment(
-                student.id,
-                payment.amount,
-                description,
-                `telegram_${userId}`
-            );
-
-            if (result.success) {
-                const message = `✅ *Pembayaran Berhasil*\n\n` +
-                              `👤 *Siswa:* ${student.name}\n` +
-                              `💰 *Jumlah:* Rp ${payment.amount.toLocaleString('id-ID')}\n` +
-                              `📝 *Keterangan:* ${description}\n\n` +
-                              `${result.summary}`;
-
-                return {
-                    success: true,
-                    message: message,
-                    data: { student, payment: result }
-                };
-            } else {
-                return {
-                    success: false,
-                    message: `❌ Gagal memproses pembayaran: ${result.error}`
-                };
-            }
-
-        } catch (error) {
-            console.error('Error executing single payment:', error);
-            return {
-                success: false,
-                message: '❌ Terjadi kesalahan saat memproses pembayaran'
-            };
-        }
-    }
-
-    async executeMultiplePayments(payments, description, userId, notFound = []) {
+    async executeMultiplePayments(payments, description, userId, notFoundNames = []) {
         try {
             const results = [];
             const errors = [];
@@ -323,17 +229,12 @@ Output: {
 
             // Process each payment
             for (const payment of payments) {
-                const student = await this.findStudentByName(payment.student_name);
-
-                if (!student) {
-                    errors.push(`❌ ${payment.student_name}: Siswa tidak ditemukan`);
-                    continue;
-                }
+                const { student, amount } = payment;
 
                 // Process payment
                 const result = await this.multiWeekPayment.processMultiWeekPayment(
                     student.id,
-                    payment.amount,
+                    amount,
                     `${description} - ${student.name}`,
                     `telegram_${userId}`
                 );
@@ -411,40 +312,41 @@ Output: {
         }
     }
 
-    async findStudentByName(searchName) {
-        try {
-            // First try exact match (case insensitive)
-            const students = await Student.getAll();
+    async findStudentsByNames(names, allStudents) {
+        const matched = [];
+        const notFound = [];
 
-            // Exact match
-            let found = students.find(s =>
-                s.name.toLowerCase() === searchName.toLowerCase()
-            );
-
-            if (found) return found;
-
-            // Partial match (contains)
-            found = students.find(s =>
-                s.name.toLowerCase().includes(searchName.toLowerCase()) ||
-                searchName.toLowerCase().includes(s.name.toLowerCase())
-            );
-
-            if (found) return found;
-
-            // Use AI for fuzzy matching if available
-            if (this.mistral.apiKey) {
-                const aiMatch = await this.mistral.findBestMatch(searchName, students);
-                if (aiMatch && aiMatch.confidence >= 0.6) {
-                    return students.find(s => s.id === aiMatch.id);
-                }
+        for (const name of names) {
+            const student = await this.findStudentByName(name, allStudents);
+            if (student) {
+                matched.push(student);
+            } else {
+                notFound.push(name);
             }
-
-            return null;
-
-        } catch (error) {
-            console.error('Error finding student by name:', error);
-            return null;
         }
+        return { matched, notFound };
+    }
+
+    async findStudentByName(searchName, studentsList) {
+        const lowerSearchName = searchName.toLowerCase();
+
+        // 1. Exact match
+        let found = studentsList.find(s => s.name.toLowerCase() === lowerSearchName);
+        if (found) return found;
+
+        // 2. Starts with match
+        found = studentsList.find(s => s.name.toLowerCase().startsWith(lowerSearchName));
+        if (found) return found;
+
+        // 3. Partial match (contains)
+        found = studentsList.find(s => s.name.toLowerCase().includes(lowerSearchName));
+        if (found) return found;
+
+        // 4. Nickname match (first word)
+        found = studentsList.find(s => s.name.toLowerCase().split(' ')[0] === lowerSearchName);
+        if (found) return found;
+
+        return null;
     }
 
     // Helper method to add makeRequest to MistralAI if not exists
@@ -481,13 +383,10 @@ Output: {
         }
     }
 
-    async executePayAllExcept(amount, excludedNames, description, userId) {
+    async executePayAllExcept(amount, excludedStudents, description, userId) {
         try {
             const allStudents = await Student.getAll();
-            const excludedStudentObjects = await Promise.all(
-                excludedNames.map(name => this.findStudentByName(name))
-            );
-            const excludedIds = excludedStudentObjects.filter(s => s).map(s => s.id);
+            const excludedIds = excludedStudents.map(s => s.id);
 
             const studentsToPay = allStudents.filter(s => !excludedIds.includes(s.id));
 
@@ -495,7 +394,7 @@ Output: {
                 return { success: true, message: 'ℹ️ Tidak ada siswa yang perlu membayar setelah pengecualian.' };
             }
 
-            const payments = studentsToPay.map(s => ({ student_name: s.name, amount }));
+            const payments = studentsToPay.map(s => ({ student: s, amount: amount }));
 
             return await this.executeMultiplePayments(payments, description, userId, []);
 
@@ -508,15 +407,14 @@ Output: {
         }
     }
 
-    async handleTransactionDeletionRequest(paymentInfo, userId) {
+    async handleTransactionDeletionRequest(student, amount, userId) {
         try {
-            const student = await this.findStudentByName(paymentInfo.student_name);
             if (!student) {
-                return { success: false, message: `❌ Siswa "${paymentInfo.student_name}" tidak ditemukan.` };
+                return { success: false, message: `❌ Siswa tidak ditemukan.` };
             }
 
             // Find the most recent transaction for this student with the specified amount
-            const transaction = await Transaction.findRecentIuranTransaction(student.id, paymentInfo.amount);
+            const transaction = await Transaction.findRecentIuranTransaction(student.id, amount);
 
             if (!transaction) {
                 return {
