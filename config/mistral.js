@@ -4,7 +4,7 @@ require('dotenv').config();
 class MistralAI {
     constructor() {
         this.apiKey = process.env.MISTRAL_API_KEY;
-        this.model = process.env.MISTRAL_MODEL || 'mistral-large-latest';
+        this.model = process.env.MISTRAL_MODEL || 'mistral-small-latest';
         this.baseURL = 'https://api.mistral.ai/v1/chat/completions';
         
         if (!this.apiKey) {

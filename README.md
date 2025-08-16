@@ -70,6 +70,7 @@ TELEGRAM_BOT_TOKEN=your_bot_token_here
 
 # Mistral AI
 MISTRAL_API_KEY=your_mistral_api_key_here
+MISTRAL_MODEL=mistral-small-latest
 ```
 
 ### 4. Jalankan Aplikasi
